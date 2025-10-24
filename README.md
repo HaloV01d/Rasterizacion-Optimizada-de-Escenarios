@@ -1,1 +1,1 @@
-# Rasterizaci-n-Optimizada-de-Escenarios
+# Rasterización-Optimizada-de-Escenarios
