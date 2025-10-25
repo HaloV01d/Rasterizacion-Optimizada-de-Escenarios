@@ -49,26 +49,35 @@ int main() {
 
     // Define the triangle vertices
     float vertices[] = {
-        //First triangle
-        -0.5f, -0.5f, 0.0f, //Top right
-         0.5f, -0.5f, 0.0f, //Bottom right
-         0.0f,  0.5f, 0.0f, //Top left
-         //Second triangle
-         0.5f, -0.5f, 0.0f, //Bottom right
-        -0.5f, -0.5f, 0.0f, //Bottom left
-        -0.0f,  0.5f, 0.0f  //Top left
+     0.5f,  0.5f, 0.0f,  // top right
+     0.5f, -0.5f, 0.0f,  // bottom right
+    -0.5f, -0.5f, 0.0f,  // bottom left
+    -0.5f,  0.5f, 0.0f   // top left 
     };
 
+    // Indices for the triangles
+    unsigned int indices[] = {
+        0, 1, 3, // first triangle
+        1, 2, 3  // second triangle
+    };
+    
+    // ----- Buffers -----
     // Generate and bind a Vertex Array Object (VAO)
     unsigned int VAO;
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
-
+    
     // Generate and bind a Vertex Buffer Object (VBO)
     unsigned int VBO;
     glGenBuffers(1, &VBO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    
+    // ----- Element Buffer Object (EBO) -----
+    unsigned int EBO;
+    glGenBuffers(1, &EBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
     // Link vertex attributes (location = 0)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
@@ -119,7 +128,7 @@ int main() {
 
         glUseProgram(shaderProgram);
         glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
         glfwSwapBuffers(win);
         glfwPollEvents();
@@ -128,6 +137,7 @@ int main() {
     // Cleanup
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &EBO);
     glDeleteProgram(shaderProgram);
 
     glfwDestroyWindow(win);
