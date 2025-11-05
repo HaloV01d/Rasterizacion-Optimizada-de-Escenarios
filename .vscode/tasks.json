@@ -2,53 +2,27 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build (mingw64)",
+      "label": "Build (MinGW, dynamic)",
       "type": "shell",
       "command": "C:\\msys64\\mingw64\\bin\\g++.exe",
       "args": [
         "-g",
-        "-DFREEGLUT_STATIC",
-        "main.cpp",
-        "-o",
-        "build\\main.exe",
-        "-IC:\\msys64\\mingw64\\include",
-        "-LC:\\msys64\\mingw64\\lib",
+        "${workspaceFolder}/main.cpp",
+        "-o", "${workspaceFolder}/build/main.exe",
+        "-I", "C:\\msys64\\mingw64\\include",
+        "-L", "C:\\msys64\\mingw64\\lib",
+        "-lglew32",
         "-lfreeglut",
         "-lopengl32",
         "-lglu32",
-        "-lwinmm",
-        "-lgdi32"
+        "-lgdi32",
+        "-lwinmm"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared"
-      },
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "problemMatcher": ["$gcc"],
-      "detail": "Builds main.cpp using MinGW64 and FreeGLUT with static linking"
-    },
-    {
-      "label": "Run App",
-      "type": "shell",
-      "command": "build\\main.exe",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared"
-      },
-      "group": "none"
+      "group": "build",
+      "problemMatcher": ["$gcc"]
     }
   ]
 }
