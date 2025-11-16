@@ -6,7 +6,12 @@
 
 #define WINDOW_TITLE_PREFIX "Rasterizacion_Optimizada_de_Escenarios" // Define el prefijo del título de la ventana
 
-int CurrentWidth = 800; // Ancho inicial de la ventana
+typedef struct {
+    GLfloat XYZW[4]; // Coordenadas del vértice
+    GLfloat RGBA[4]; // Color del vértice
+} Vertex; // Estructura para un vértice con posición y color
+
+int CurrentWidth = 600; // Ancho inicial de la ventana
 int CurrentHeight = 600; // Altura inicial de la ventana
 int WindowHandle = 0; // Manejador de la ventana
 
@@ -17,7 +22,8 @@ GLuint FragmentShaderId; // ID del shader de fragmentos
 GLuint ProgramId; // ID del programa shader
 GLuint VaoId; // ID del Vertex Array Object
 GLuint VboId; // ID del Vertex Buffer Object
-GLuint ColorBufferId; // ID del Color Buffer Object
+GLuint BufferId; // ID del Buffer
+GLuint IndexBufferId; // ID del Index Buffer
 
 const GLchar* VertexShader = // Código del shader de vértices
 {
@@ -118,7 +124,7 @@ void RenderFunction(void) { // Función de renderizado
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Limpia el buffer de color y profundidad
 
     // Aquí iría el código de renderizado
-    glDrawArrays(GL_TRIANGLES, 0, 3); // Dibuja un triángulo como ejemplo
+    glDrawElements(GL_TRIANGLES, 48, GL_UNSIGNED_BYTE, (GLvoid*)0); // Dibuja los elementos usando índices
 
     glutSwapBuffers(); // Intercambia los buffers
     glutPostRedisplay(); // Solicita una nueva renderización
@@ -147,39 +153,86 @@ void CleanUp(void) { // Función de limpieza
 }
 
 void CreateVBO(void) { // Función para crear el VBO
-    // Aquí iría el código para crear el VBO
-    GLfloat Vertices[] = {
-        -0.8f, -0.8f, 0.0f, 1.0f,
-         0.0f, 0.8f, 0.0f, 1.0f,
-         0.8f,  -0.8f, 0.0f, 1.0f
-    };
-    GLfloat Colors[] = {
-        1.0f, 0.0f, 0.0f, 1.0f,
-        0.0f, 1.0f, 0.0f, 1.0f,
-        0.0f, 0.0f, 1.0f, 1.0f
-    };
+Vertex Vertices[] = // Array de vértices
+{
+	{ { 0.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } },
+	// Top
+	{ { -0.2f, 0.8f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+	{ { 0.2f, 0.8f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+	{ { 0.0f, 0.8f, 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
+	{ { 0.0f, 1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+	// Bottom
+	{ { -0.2f, -0.8f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+	{ { 0.2f, -0.8f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+	{ { 0.0f, -0.8f, 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
+	{ { 0.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+	// Left
+	{ { -0.8f, -0.2f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+	{ { -0.8f, 0.2f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+	{ { -0.8f, 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
+	{ { -1.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+	// Right
+	{ { 0.8f, -0.2f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+	{ { 0.8f, 0.2f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+	{ { 0.8f, 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
+	{ { 1.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
+};
+
+GLubyte Indices[] = {
+	// Top
+	0, 1, 3,
+	0, 3, 2,
+	3, 1, 4,
+	3, 4, 2,
+	// Bottom
+	0, 5, 7,
+	0, 7, 6,
+	7, 5, 8,
+	7, 8, 6,
+	// Left
+	0, 9, 11,
+	0, 11, 10,
+	11, 9, 12,
+	11, 12, 10,
+	// Right
+	0, 13, 15,
+	0, 15, 14,
+	15, 13, 16,
+	15, 16, 14
+};
 
     GLenum ErrorCheckValue = glGetError(); // Verifica errores antes de crear el VBO
+    const size_t BufferSize = sizeof(Vertices); // Calcula el tamaño del buffer
+    const size_t VertexSize = sizeof(Vertices[0]); // Calcula el tamaño de un vértice
+    const size_t RgbOffset = sizeof(Vertices[0].XYZW); // Calcula el offset del color dentro de un vértice
+
+    glGenBuffers(1, &VboId); // Genera el VBO
 
     glGenVertexArrays(1, &VaoId); // Genera el VAO
     glBindVertexArray(VaoId); // Vincula el VAO
 
-    glGenBuffers(1, &VboId); // Genera el VBO
     glBindBuffer(GL_ARRAY_BUFFER, VboId); // Vincula el VBO
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices) , Vertices, GL_STATIC_DRAW); // Carga los datos de los vértices
-    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0); // Define el layout de los vértices
-    glEnableVertexAttribArray(0); // Habilita el atributo de vértices
+    glBufferData(GL_ARRAY_BUFFER, BufferSize, Vertices, GL_STATIC_DRAW); // Carga los datos de los vértices en el VBO
 
-    glGenBuffers(1, &ColorBufferId); // Genera el Color Buffer
-    glBindBuffer(GL_ARRAY_BUFFER, ColorBufferId); // Vincula el Color Buffer
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Colors), Colors, GL_STATIC_DRAW); // Carga los datos de color
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, 0); // Define el layout de los colores
-    glEnableVertexAttribArray(1); // Habilita el atributo de colores
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, VertexSize, 0); // Define el atributo de posición
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, VertexSize, (GLvoid*)RgbOffset); // Define el atributo de color
+
+    glEnableVertexAttribArray(0); // Habilita el atributo de posición
+    glEnableVertexAttribArray(1); // Habilita el atributo de color
+    glGenBuffers(1, &IndexBufferId); // Genera el Index Buffer
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId); // Vincula el Index Buffer
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Indices), Indices, GL_STATIC_DRAW); // Carga los datos de los índices en el Index Buffer
 
     ErrorCheckValue = glGetError(); // Verifica errores después de crear el VBO
-    if (ErrorCheckValue != GL_NO_ERROR) {
-        fprintf(stderr, "ERROR: Could not create a VBO: %s \n", gluErrorString(ErrorCheckValue)); // Imprime un error si no se puede crear el VBO
-        exit(-1); // Sale del programa con fallo
+    if (ErrorCheckValue != GL_NO_ERROR) //  Si hay un error
+    {
+        fprintf(
+        stderr,
+        "ERROR: Could not create a VBO: %s\n",
+        gluErrorString(ErrorCheckValue)
+        );
+
+        exit(-1);
     }
 }
 
@@ -191,8 +244,10 @@ void DestroyVBO(void) { // Función para destruir el VBO
 
     glBindBuffer(GL_ARRAY_BUFFER, 0); // Desvincula el buffer
 
-    glDeleteBuffers(1, &ColorBufferId); // Elimina el Color Buffer
     glDeleteBuffers(1, &VboId); // Elimina el VBO
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); // Desvincula el Index Buffer
+    glDeleteBuffers(1, &IndexBufferId); // Elimina el Index Buffer
 
     glBindVertexArray(0); // Desvincula el VAO
     glDeleteVertexArrays(1, &VaoId); // Elimina el VAO
