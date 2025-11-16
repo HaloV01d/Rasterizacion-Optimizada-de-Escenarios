@@ -21,9 +21,9 @@ GLuint VertextShaderId; // ID del shader de vértices
 GLuint FragmentShaderId; // ID del shader de fragmentos
 GLuint ProgramId; // ID del programa shader
 GLuint VaoId; // ID del Vertex Array Object
-GLuint VboId; // ID del Vertex Buffer Object
 GLuint BufferId; // ID del Buffer
-GLuint IndexBufferId; // ID del Index Buffer
+GLuint IndexBufferId[2]; // ID del Index Buffer
+GLuint ActiveIndexBuffer = 0; // Índice activo del Index Buffer
 
 const GLchar* VertexShader = // Código del shader de vértices
 {
@@ -55,6 +55,7 @@ void ResizeFunction(int, int); // Declaración de la función de redimensionamie
 void RenderFunction(void); // Declaración de la función de renderizado
 void TimerFunction(int); // Declaración de la función de temporizador
 void IdleFunction(void); // Declaración de la función inactiva
+void KeyboardFunction(unsigned char, int, int); // Declaración de la función de teclado
 void CleanUp(void); // Declaración de la función de limpieza
 void CreateVBO(void); // Declaración de la función para crear el VBO
 void DestroyVBO(void); // Declaración de la función para destruir el VBO
@@ -111,7 +112,22 @@ void InitWindow(int argc, char* argv[]) { // Función para inicializar la ventan
     glutIdleFunc(IdleFunction); // Registra la función inactiva
     glutTimerFunc(0, TimerFunction, 0); // Registra la función de temporizador
     glutCloseFunc(CleanUp); // Registra la función de limpieza
+    glutKeyboardFunc(KeyboardFunction); // Registra la función de teclado
 }
+
+void KeyboardFunction(unsigned char Key, int X, int Y) { // Función de teclado
+    switch (Key) {
+        case 'T': // Si se presiona la tecla 'T'
+        case 't': // Si se presiona la tecla 't'
+            {
+                ActiveIndexBuffer = (ActiveIndexBuffer == 1 ? 0 : 1); // Cambia el Index Buffer activo
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId[ActiveIndexBuffer]); // Vincula el Index Buffer activo
+                break;
+            }
+        default:
+            break;
+        }
+    }
 
 void ResizeFunction(int Width, int Height) { // Función de redimensionamiento
     CurrentWidth = Width; // Actualiza el ancho actual
@@ -124,7 +140,12 @@ void RenderFunction(void) { // Función de renderizado
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Limpia el buffer de color y profundidad
 
     // Aquí iría el código de renderizado
-    glDrawElements(GL_TRIANGLES, 48, GL_UNSIGNED_BYTE, (GLvoid*)0); // Dibuja los elementos usando índices
+    
+    if (ActiveIndexBuffer == 0) { // Si el Index Buffer activo es el primero
+    glDrawElements(GL_TRIANGLES, 48, GL_UNSIGNED_BYTE, NULL); // Dibuja los elementos usando el Index Buffer activo
+    } else {
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, NULL); // Dibuja los elementos usando el Index Buffer activo
+    }
 
     glutSwapBuffers(); // Intercambia los buffers
     glutPostRedisplay(); // Solicita una nueva renderización
@@ -201,27 +222,51 @@ GLubyte Indices[] = {
 	15, 16, 14
 };
 
+
+GLubyte AlternateIndices[] = {
+    // Outer square
+    3, 4, 16,
+    3, 15, 16,
+    15, 16, 8,
+    15, 7, 8,
+    7, 8, 12,
+    7, 11, 12,
+    11, 12, 4,
+    11, 3, 4,
+
+    // Inner diamond
+    0, 11, 3,
+    0, 3, 15,
+    0, 15, 7,
+    0, 7, 11
+};
+
     GLenum ErrorCheckValue = glGetError(); // Verifica errores antes de crear el VBO
     const size_t BufferSize = sizeof(Vertices); // Calcula el tamaño del buffer
     const size_t VertexSize = sizeof(Vertices[0]); // Calcula el tamaño de un vértice
     const size_t RgbOffset = sizeof(Vertices[0].XYZW); // Calcula el offset del color dentro de un vértice
 
-    glGenBuffers(1, &VboId); // Genera el VBO
-
     glGenVertexArrays(1, &VaoId); // Genera el VAO
     glBindVertexArray(VaoId); // Vincula el VAO
-
-    glBindBuffer(GL_ARRAY_BUFFER, VboId); // Vincula el VBO
-    glBufferData(GL_ARRAY_BUFFER, BufferSize, Vertices, GL_STATIC_DRAW); // Carga los datos de los vértices en el VBO
+    
+    glGenBuffers(1, &BufferId); // Genera el Index Buffer
+    glBindBuffer(GL_ARRAY_BUFFER, BufferId); // Vincula el Index Buffer
+    glBufferData(GL_ARRAY_BUFFER, BufferSize, Vertices, GL_STATIC_DRAW); // Carga los datos de los vértices en el Index Buffer
 
     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, VertexSize, 0); // Define el atributo de posición
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, VertexSize, (GLvoid*)RgbOffset); // Define el atributo de color
 
     glEnableVertexAttribArray(0); // Habilita el atributo de posición
     glEnableVertexAttribArray(1); // Habilita el atributo de color
-    glGenBuffers(1, &IndexBufferId); // Genera el Index Buffer
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId); // Vincula el Index Buffer
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Indices), Indices, GL_STATIC_DRAW); // Carga los datos de los índices en el Index Buffer
+
+    glGenBuffers(2, IndexBufferId); // Genera los Index Buffers
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId[0]); // Vincula el Index Buffer inicial
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Indices), Indices, GL_STATIC_DRAW); // Carga los datos de los índices en el Index Buffer inicial
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId[1]); // Vincula el Index Buffer alternativo
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(AlternateIndices), AlternateIndices, GL_STATIC_DRAW); // Carga los datos de los índices alternativos en el Index Buffer
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId[0]); // Vincula el Index Buffer inicial
 
     ErrorCheckValue = glGetError(); // Verifica errores después de crear el VBO
     if (ErrorCheckValue != GL_NO_ERROR) //  Si hay un error
@@ -242,12 +287,12 @@ void DestroyVBO(void) { // Función para destruir el VBO
     glDisableVertexAttribArray(1); // Deshabilita el atributo de colores
     glDisableVertexAttribArray(0); // Deshabilita el atributo de vértices
 
-    glBindBuffer(GL_ARRAY_BUFFER, 0); // Desvincula el buffer
 
-    glDeleteBuffers(1, &VboId); // Elimina el VBO
+    glBindBuffer(GL_ARRAY_BUFFER, 0); // Desvincula el buffer
+    glDeleteBuffers(1, &BufferId); 
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); // Desvincula el Index Buffer
-    glDeleteBuffers(1, &IndexBufferId); // Elimina el Index Buffer
+    glDeleteBuffers(2, IndexBufferId); // Elimina el Index Buffer
 
     glBindVertexArray(0); // Desvincula el VAO
     glDeleteVertexArrays(1, &VaoId); // Elimina el VAO
