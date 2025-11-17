@@ -36,6 +36,7 @@ Matrix CreateProjectionMatrix(float fovY, float aspect, float nearPlane, float f
 
 void ExitOnGLError(const char* message); // Función para salir en caso de error de OpenGL
 
-void LoadShader (const char* filename, GLenum shader_Type); // Función para cargar un shader desde un archivo
+GLuint LoadShader(const char* filename, GLenum shader_Type); // Función para cargar un shader desde un archivo
+
 
 #endif // UTILS_H
