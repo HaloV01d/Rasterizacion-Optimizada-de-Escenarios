@@ -1,74 +1,56 @@
-#include <stdlib.h> // Incluye la biblioteca estándar de C
-#include <string.h> // Incluye la biblioteca estándar de C++ para manejo de cadenas
-#include <stdio.h> // Incluye la biblioteca estándar de C para entrada/salida
-#include <GL/glew.h> // Incluye la biblioteca GLEW
-#include <GL/freeglut.h> // Incluye la biblioteca FreeGLUT
+#include "Utils.h" // Incluye el archivo de cabecera Utils.h
 
 #define WINDOW_TITLE_PREFIX "Rasterizacion_Optimizada_de_Escenarios" // Define el prefijo del título de la ventana
 
-typedef struct {
-    GLfloat XYZW[4]; // Coordenadas del vértice
-    GLfloat RGBA[4]; // Color del vértice
-} Vertex; // Estructura para un vértice con posición y color
-
-int CurrentWidth = 600; // Ancho inicial de la ventana
+int CurrentWidth = 800; // Ancho inicial de la ventana
 int CurrentHeight = 600; // Altura inicial de la ventana
 int WindowHandle = 0; // Manejador de la ventana
 
 unsigned FrameCount = 0; // Contador de frames
 
-GLuint VertextShaderId; // ID del shader de vértices
-GLuint FragmentShaderId; // ID del shader de fragmentos
-GLuint ProgramId; // ID del programa shader
-GLuint VaoId; // ID del Vertex Array Object
-GLuint BufferId; // ID del Buffer
-GLuint IndexBufferId[2]; // ID del Index Buffer
-GLuint ActiveIndexBuffer = 0; // Índice activo del Index Buffer
+GLuint
+ProjectionMatrixUniformLocation,
+ViewMatrixUniformLocation,
+ModelMatrixUniformLocation,
+BufferIds[3] = { 0 },
+ShaderIds[3] = { 0 };
 
-const GLchar* VertexShader = // Código del shader de vértices
-{
-"#version 430 core                                                 \n"
-"layout(location = 0) in vec4 in_Position;                        \n"
-"layout(location = 1) in vec4 in_Color;                           \n"
-"out vec4 ex_Color;                                              \n"
-"void main(void)                                                 \n"
-"{                                                               \n"
-"    gl_Position = in_Position;                                  \n"
-"    ex_Color = in_Color;                                        \n"
-"}                                                               \n"
-};
+Matrix
+ProjectionMatrix,
+ViewMatrix,
+ModelMatrix;
 
-const GLchar* FragmentShader = // Código del shader de fragmentos
-{
-"#version 430 core                                                 \n"
-"in vec4 ex_Color;                                              \n"
-"out vec4 out_Color;                                            \n"
-"void main(void)                                                 \n"
-"{                                                               \n"
-"    out_Color = ex_Color;                                      \n"
-"}                                                               \n"
-};
+float CubeRotationAngle = 0; // Ángulo de rotación del cubo
+clock_t LastTime = 0; // Tiempo del último frame
 
-void Initialize(int, char*[]); // Declaración de la función de inicialización
-void InitWindow(int, char*[]); // Declaración de la función para inicializar la ventana
-void ResizeFunction(int, int); // Declaración de la función de redimensionamiento
-void RenderFunction(void); // Declaración de la función de renderizado
-void TimerFunction(int); // Declaración de la función de temporizador
-void IdleFunction(void); // Declaración de la función inactiva
-void KeyboardFunction(unsigned char, int, int); // Declaración de la función de teclado
-void CleanUp(void); // Declaración de la función de limpieza
-void CreateVBO(void); // Declaración de la función para crear el VBO
-void DestroyVBO(void); // Declaración de la función para destruir el VBO
-void CreateShaders(void); // Declaración de la función para crear los shaders
-void DestroyShaders(void); // Declaración de la función para destruir los shaders
+
+// Funciones
+void Initialize(int, char*[]);
+void InitWindow(int, char*[]);
+void ResizeFunction(int, int);
+void RenderFunction(void);
+void TimerFunction(int);
+void IdleFunction(void);
+void CreateCube(void);
+void DestroyCube(void);
+void DrawCube(void);
+void KeyboardFunction(unsigned char, int, int);
+void CleanUp(void);
+
 
 int main(int argc, char* argv[]) {
 
+    printf("Entrando a main...\n");
     Initialize(argc, argv); // Llama a la función de inicialización
+    printf("Despues de Initialize...\n");
     glutMainLoop(); // Entra en el bucle principal de GLUT
+
+    printf("Despues de glutMainLoop (solo si algun dia sale)...\n");
+    getchar(); // Mantiene la consola abierta si glutMainLoop retorna
+
     exit(EXIT_SUCCESS); // Sale del programa exitosamente
-    return 0; // Retorna 0 al sistema operativo
 }
+
 
 void Initialize(int argc, char* argv[]) { // Función de inicialización
     GLenum GlewInitResult; // Variable para almacenar el resultado de la inicialización de GLEW
@@ -83,10 +65,24 @@ void Initialize(int argc, char* argv[]) { // Función de inicialización
     }
 
     fprintf(stdout, "INFO: OPENGL Version: %s\n", glGetString(GL_VERSION)); // Imprime la versión de OpenGL
-    CreateShaders(); // Llama a la función para crear los shaders
-    CreateVBO(); // Llama a la función para crear el VBO
+
+    ModelMatrix = IDENTITY_MATRIX; // Inicializa la matriz modelo como la matriz identidad
+    ProjectionMatrix = IDENTITY_MATRIX; // Inicializa la matriz de proyección como la matriz identidad
+    ViewMatrix = IDENTITY_MATRIX; // Inicializa la matriz vista como la matriz identidad
+    TranslateMatrix(&ViewMatrix, 0, 0, -2); // Traslada la matriz vista
+
+    // Habilitar OpenGL
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f); // Establece el color
+    glEnable(GL_DEPTH_TEST); // Habilita la prueba de profundidad
+    glDepthFunc(GL_LESS); // Establece la función de profundidad
+
+    glEnable(GL_CULL_FACE); // Habilita el recorte de caras
+    glCullFace(GL_BACK); // Establece las caras traseras para el recorte
+    glFrontFace(GL_CCW); // Establece el sentido antihorario como frontal
+
+    CreateCube(); // Llama a la función para crear el cubo
 }
+
 
 void InitWindow(int argc, char* argv[]) { // Función para inicializar la ventana
     glutInit(&argc, argv); // Inicializa GLUT
@@ -94,255 +90,196 @@ void InitWindow(int argc, char* argv[]) { // Función para inicializar la ventan
     glutInitContextFlags(GLUT_FORWARD_COMPATIBLE); // Establece las banderas del contexto OpenGL
     glutInitContextProfile(GLUT_CORE_PROFILE); // Establece el perfil del contexto OpenGL
 
-    glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS); // Configura la acción al cerrar la ventana
+    glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS);
 
     glutInitWindowSize(CurrentWidth, CurrentHeight); // Inicializa el tamaño de la ventana
-
     glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA); // Inicializa el modo de visualización
-
     WindowHandle = glutCreateWindow(WINDOW_TITLE_PREFIX); // Crea la ventana
 
     if (WindowHandle < 1) {
-        fprintf(stderr, "ERROR: Could not create a new rendering window.\n"); // Imprime un error si no se puede crear la ventana
-        exit(EXIT_FAILURE); // Sale del programa con fallo
+        fprintf(stderr, "ERROR: Could not create a new rendering window.\n");
+        exit(EXIT_FAILURE);
     }
 
-    glutReshapeFunc(ResizeFunction); // Registra la función de redimensionamiento
-    glutDisplayFunc(RenderFunction); // Registra la función de renderizado
-    glutIdleFunc(IdleFunction); // Registra la función inactiva
-    glutTimerFunc(0, TimerFunction, 0); // Registra la función de temporizador
-    glutCloseFunc(CleanUp); // Registra la función de limpieza
-    glutKeyboardFunc(KeyboardFunction); // Registra la función de teclado
+    glutReshapeFunc(ResizeFunction);
+    glutDisplayFunc(RenderFunction);
+    glutIdleFunc(IdleFunction);
+    glutTimerFunc(0, TimerFunction, 0);
+    glutKeyboardFunc(KeyboardFunction);
+    glutCloseFunc(CleanUp);
 }
 
-void KeyboardFunction(unsigned char Key, int X, int Y) { // Función de teclado
-    switch (Key) {
-        case 'T': // Si se presiona la tecla 'T'
-        case 't': // Si se presiona la tecla 't'
-            {
-                ActiveIndexBuffer = (ActiveIndexBuffer == 1 ? 0 : 1); // Cambia el Index Buffer activo
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId[ActiveIndexBuffer]); // Vincula el Index Buffer activo
-                break;
-            }
-        default:
-            break;
-        }
-    }
 
-void ResizeFunction(int Width, int Height) { // Función de redimensionamiento
-    CurrentWidth = Width; // Actualiza el ancho actual
-    CurrentHeight = Height; // Actualiza la altura actual
-    glViewport(0, 0, CurrentWidth, CurrentHeight); // Establece el viewport
+void KeyboardFunction(unsigned char Key, int X, int Y) {
+    // No usamos teclas ahora
 }
 
-void RenderFunction(void) { // Función de renderizado
-    ++FrameCount; // Incrementa el contador de frames
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Limpia el buffer de color y profundidad
 
-    // Aquí iría el código de renderizado
-    
-    if (ActiveIndexBuffer == 0) { // Si el Index Buffer activo es el primero
-    glDrawElements(GL_TRIANGLES, 48, GL_UNSIGNED_BYTE, NULL); // Dibuja los elementos usando el Index Buffer activo
-    } else {
-    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, NULL); // Dibuja los elementos usando el Index Buffer activo
-    }
+void ResizeFunction(int Width, int Height) {
+    CurrentWidth = Width;
+    CurrentHeight = Height;
 
-    glutSwapBuffers(); // Intercambia los buffers
-    glutPostRedisplay(); // Solicita una nueva renderización
+    glViewport(0, 0, CurrentWidth, CurrentHeight);
+
+    ProjectionMatrix = CreateProjectionMatrix(
+        60,
+        (float)CurrentWidth / (float)CurrentHeight,
+        0.1f,
+        100.0f
+    );
 }
+
+
+void RenderFunction(void) {
+    ++FrameCount;
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    DrawCube(); // Llama a dibujar el cubo
+
+    glutSwapBuffers();
+    glutPostRedisplay();
+}
+
 
 void IdleFunction(void) {
-    glutPostRedisplay(); // Solicita una nueva renderización cuando el programa está inactivo
+    glutPostRedisplay();
 }
 
-void TimerFunction(int Value) { // Función de temporizador
-    if (0 != Value) {
-        char* TempString = (char*)malloc(512 + strlen(WINDOW_TITLE_PREFIX)); // Reserva memoria para el título de la ventana
 
-        sprintf(TempString, "%s: %d Frames Per Second @ %d x %d", WINDOW_TITLE_PREFIX, FrameCount * 4, CurrentWidth, CurrentHeight); // Formatea el título con los FPS
+void TimerFunction(int Value) {
+    if (Value != 0) {
+        char* TempString = (char*)malloc(512 + strlen(WINDOW_TITLE_PREFIX));
 
-        glutSetWindowTitle(TempString); // Establece el título de la ventana
-        free(TempString); // Libera la memoria reservada
-    }
-    FrameCount = 0; // Reinicia el contador de frames
-    glutTimerFunc(250, TimerFunction, 1); // Vuelve a llamar a la función de temporizador después de 250 ms
-}
-
-void CleanUp(void) { // Función de limpieza
-    DestroyVBO(); // Llama a la función para destruir el VBO
-    DestroyShaders(); // Llama a la función para destruir los shaders
-}
-
-void CreateVBO(void) { // Función para crear el VBO
-Vertex Vertices[] = // Array de vértices
-{
-	{ { 0.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } },
-	// Top
-	{ { -0.2f, 0.8f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-	{ { 0.2f, 0.8f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-	{ { 0.0f, 0.8f, 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
-	{ { 0.0f, 1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-	// Bottom
-	{ { -0.2f, -0.8f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-	{ { 0.2f, -0.8f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-	{ { 0.0f, -0.8f, 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
-	{ { 0.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-	// Left
-	{ { -0.8f, -0.2f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-	{ { -0.8f, 0.2f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-	{ { -0.8f, 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
-	{ { -1.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-	// Right
-	{ { 0.8f, -0.2f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-	{ { 0.8f, 0.2f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-	{ { 0.8f, 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
-	{ { 1.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
-};
-
-GLubyte Indices[] = {
-	// Top
-	0, 1, 3,
-	0, 3, 2,
-	3, 1, 4,
-	3, 4, 2,
-	// Bottom
-	0, 5, 7,
-	0, 7, 6,
-	7, 5, 8,
-	7, 8, 6,
-	// Left
-	0, 9, 11,
-	0, 11, 10,
-	11, 9, 12,
-	11, 12, 10,
-	// Right
-	0, 13, 15,
-	0, 15, 14,
-	15, 13, 16,
-	15, 16, 14
-};
-
-
-GLubyte AlternateIndices[] = {
-    // Outer square
-    3, 4, 16,
-    3, 15, 16,
-    15, 16, 8,
-    15, 7, 8,
-    7, 8, 12,
-    7, 11, 12,
-    11, 12, 4,
-    11, 3, 4,
-
-    // Inner diamond
-    0, 11, 3,
-    0, 3, 15,
-    0, 15, 7,
-    0, 7, 11
-};
-
-    GLenum ErrorCheckValue = glGetError(); // Verifica errores antes de crear el VBO
-    const size_t BufferSize = sizeof(Vertices); // Calcula el tamaño del buffer
-    const size_t VertexSize = sizeof(Vertices[0]); // Calcula el tamaño de un vértice
-    const size_t RgbOffset = sizeof(Vertices[0].XYZW); // Calcula el offset del color dentro de un vértice
-
-    glGenVertexArrays(1, &VaoId); // Genera el VAO
-    glBindVertexArray(VaoId); // Vincula el VAO
-    
-    glGenBuffers(1, &BufferId); // Genera el Index Buffer
-    glBindBuffer(GL_ARRAY_BUFFER, BufferId); // Vincula el Index Buffer
-    glBufferData(GL_ARRAY_BUFFER, BufferSize, Vertices, GL_STATIC_DRAW); // Carga los datos de los vértices en el Index Buffer
-
-    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, VertexSize, 0); // Define el atributo de posición
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, VertexSize, (GLvoid*)RgbOffset); // Define el atributo de color
-
-    glEnableVertexAttribArray(0); // Habilita el atributo de posición
-    glEnableVertexAttribArray(1); // Habilita el atributo de color
-
-    glGenBuffers(2, IndexBufferId); // Genera los Index Buffers
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId[0]); // Vincula el Index Buffer inicial
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Indices), Indices, GL_STATIC_DRAW); // Carga los datos de los índices en el Index Buffer inicial
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId[1]); // Vincula el Index Buffer alternativo
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(AlternateIndices), AlternateIndices, GL_STATIC_DRAW); // Carga los datos de los índices alternativos en el Index Buffer
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferId[0]); // Vincula el Index Buffer inicial
-
-    ErrorCheckValue = glGetError(); // Verifica errores después de crear el VBO
-    if (ErrorCheckValue != GL_NO_ERROR) //  Si hay un error
-    {
-        fprintf(
-        stderr,
-        "ERROR: Could not create a VBO: %s\n",
-        gluErrorString(ErrorCheckValue)
+        sprintf(
+            TempString,
+            "%s: %d FPS @ %d x %d",
+            WINDOW_TITLE_PREFIX,
+            FrameCount * 4,
+            CurrentWidth,
+            CurrentHeight
         );
 
-        exit(-1);
+        glutSetWindowTitle(TempString);
+        free(TempString);
     }
+
+    FrameCount = 0;
+    glutTimerFunc(250, TimerFunction, 1);
 }
 
-void DestroyVBO(void) { // Función para destruir el VBO
-    GLenum ErrorCheckValue = glGetError(); // Verifica errores antes de destruir el VBO
 
-    glDisableVertexAttribArray(1); // Deshabilita el atributo de colores
-    glDisableVertexAttribArray(0); // Deshabilita el atributo de vértices
-
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0); // Desvincula el buffer
-    glDeleteBuffers(1, &BufferId); 
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); // Desvincula el Index Buffer
-    glDeleteBuffers(2, IndexBufferId); // Elimina el Index Buffer
-
-    glBindVertexArray(0); // Desvincula el VAO
-    glDeleteVertexArrays(1, &VaoId); // Elimina el VAO
-
-    ErrorCheckValue = glGetError(); // Verifica errores después de destruir el VBO
-    if (ErrorCheckValue != GL_NO_ERROR) {
-        fprintf(stderr, "ERROR: Could not destroy the VBO: %s \n", gluErrorString(ErrorCheckValue)); // Imprime un error si no se puede destruir el VBO
-        exit(-1); // Sale del programa con fallo
-    }
+void CleanUp(void) {
+    DestroyCube();
 }
 
-void CreateShaders(void) { // Función para crear los shaders
-    GLenum ErrorCheckValue = glGetError(); // Verifica errores antes de crear los shaders
 
-    VertextShaderId = glCreateShader(GL_VERTEX_SHADER); // Crea el shader de vértices
-    glShaderSource(VertextShaderId, 1, &VertexShader, NULL); // Establece el código fuente del shader de vértices
-    glCompileShader(VertextShaderId); // Compila el shader de vértices
+// ===============================
+//  CREAR EL CUBO
+// ===============================
+void CreateCube() {
 
-    FragmentShaderId = glCreateShader(GL_FRAGMENT_SHADER); // Crea el shader de fragmentos
-    glShaderSource(FragmentShaderId, 1, &FragmentShader, NULL); // Establece el código fuente del shader de fragmentos
-    glCompileShader(FragmentShaderId); // Compila el shader de fragmentos
+    const Vertex Vertices[8] =
+    {
+        { { -.5f, -.5f,  .5f, 1 }, { 0, 0, 1, 1 } },
+        { { -.5f,  .5f,  .5f, 1 }, { 1, 0, 0, 1 } },
+        { {  .5f,  .5f,  .5f, 1 }, { 0, 1, 0, 1 } },
+        { {  .5f, -.5f,  .5f, 1 }, { 1, 1, 0, 1 } },
+        { { -.5f, -.5f, -.5f, 1 }, { 1, 1, 1, 1 } },
+        { { -.5f,  .5f, -.5f, 1 }, { 1, 0, 0, 1 } },
+        { {  .5f,  .5f, -.5f, 1 }, { 1, 0, 1, 1 } },
+        { {  .5f, -.5f, -.5f, 1 }, { 0, 0, 1, 1 } }
+    };
 
-    ProgramId = glCreateProgram(); // Crea el programa shader
-        glAttachShader(ProgramId, VertextShaderId); // Adjunta el shader de vértices al programa
-        glAttachShader(ProgramId, FragmentShaderId); // Adjunta el shader de fragmentos al programa
-    glLinkProgram(ProgramId); // Enlaza el programa shader
-    glUseProgram(ProgramId); // Usa el programa shader
+    const GLuint Indices[36] =
+    {
+        0,2,1,  0,3,2,
+        4,3,0,  4,7,3,
+        4,1,5,  4,0,1,
+        3,6,2,  3,7,6,
+        1,6,5,  1,2,6,
+        7,5,6,  7,4,5
+    };
 
-    ErrorCheckValue = glGetError(); // Verifica errores después de crear los shaders
-    if (ErrorCheckValue != GL_NO_ERROR) {
-        fprintf(stderr, "ERROR: Could not create the shaders: %s \n", gluErrorString(ErrorCheckValue)); // Imprime un error si no se pueden crear los shaders
-        exit(-1); // Sale del programa con fallo
+    ShaderIds[0] = glCreateProgram();
+    {
+        ShaderIds[1] = LoadShader("SimpleShader.fragment.glsl", GL_FRAGMENT_SHADER);
+        ShaderIds[2] = LoadShader("SimpleShader.vertex.glsl", GL_VERTEX_SHADER);
+        glAttachShader(ShaderIds[0], ShaderIds[1]);
+        glAttachShader(ShaderIds[0], ShaderIds[2]);
     }
+    glLinkProgram(ShaderIds[0]);
+
+    ModelMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ModelMatrix");
+    ViewMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ViewMatrix");
+    ProjectionMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ProjectionMatrix");
+
+    glGenVertexArrays(1, &BufferIds[0]);
+    glBindVertexArray(BufferIds[0]);
+
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+
+    glGenBuffers(2, &BufferIds[1]);
+
+    glBindBuffer(GL_ARRAY_BUFFER, BufferIds[1]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), Vertices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(Vertices[0]), (GLvoid*)0);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertices[0]), (GLvoid*)sizeof(Vertices[0].Position));
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, BufferIds[2]);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Indices), Indices, GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
 }
 
-void DestroyShaders(void) { // Función para destruir los shaders
-    GLenum ErrorCheckValue = glGetError(); // Verifica errores antes de destruir los shaders
 
-    glUseProgram(0); // Deja de usar el programa shader
+// ===============================
+//  DIBUJAR EL CUBO ROTANDO
+// ===============================
+void DrawCube(void) {
 
-    glDetachShader(ProgramId, VertextShaderId); // Desadjunta el shader de vértices del programa
-    glDetachShader(ProgramId, FragmentShaderId); // Desadjunta el shader de fragmentos del programa
-
-    glDeleteShader(FragmentShaderId); // Elimina el shader de fragmentos
-    glDeleteShader(VertextShaderId); // Elimina el shader de vértices
-    glDeleteProgram(ProgramId); // Elimina el programa shader
-
-    ErrorCheckValue = glGetError(); // Verifica errores después de destruir los shaders
-    if (ErrorCheckValue != GL_NO_ERROR) {
-        fprintf(stderr, "ERROR: Could not destroy the shaders: %s \n", gluErrorString(ErrorCheckValue)); // Imprime un error si no se pueden destruir los shaders
-        exit(-1); // Sale del programa con fallo
+    float CubeAngle;
+    clock_t Now = clock();
+    if (LastTime == 0) {
+        LastTime = Now;
     }
+
+    CubeRotationAngle += 45.0f * ((float)(Now - LastTime) / CLOCKS_PER_SEC);
+    CubeAngle = DegreesToRadians(CubeRotationAngle);
+    LastTime = Now;
+
+    ModelMatrix = IDENTITY_MATRIX;
+    RotateAboutyAxis(&ModelMatrix, CubeAngle);
+    RotateAboutxAxis(&ModelMatrix, CubeAngle);
+
+    glUseProgram(ShaderIds[0]);
+
+    glUniformMatrix4fv(ModelMatrixUniformLocation, 1, GL_FALSE, ModelMatrix.m);
+    glUniformMatrix4fv(ViewMatrixUniformLocation, 1, GL_FALSE, ViewMatrix.m);
+    glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
+
+    glBindVertexArray(BufferIds[0]);
+
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, (GLvoid*)0);
+
+    glBindVertexArray(0);
+    glUseProgram(0);
+}
+
+
+// ===============================
+//  DESTRUIR CUBO
+// ===============================
+void DestroyCube(void) {
+
+    glDetachShader(ShaderIds[0], ShaderIds[1]);
+    glDetachShader(ShaderIds[0], ShaderIds[2]);
+    glDeleteShader(ShaderIds[1]);
+    glDeleteShader(ShaderIds[2]);
+    glDeleteProgram(ShaderIds[0]);
+
+    glDeleteBuffers(2, &BufferIds[1]);
+    glDeleteVertexArrays(1, &BufferIds[0]);
 }
