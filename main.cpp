@@ -7,6 +7,9 @@
 #include <algorithm> // Para std::count
 #include <map> // Para std::map
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h" // Para carga de imágenes
+
 #define WINDOW_TITLE_PREFIX "Rasterizacion_Optimizada_de_Escenarios" // Título de la ventana
 
 int CurrentWidth = 800;  // Ancho actual de la ventana
@@ -32,12 +35,18 @@ GLuint ShaderIds[3] = {0}; // IDs de shaders (vertex, fragment, program)
 
 GLuint GroundVAO = 0, GroundVBO = 0, GroundIBO = 0; // VAO, VBO, IBO para el suelo
 
+GLuint BaseColorTex = 0, NormalTex = 0, RoughnessTex = 0, AOTex = 0; // Texturas del modelo
+
 Matrix ProjectionMatrix; // Matriz de proyección
 Matrix ViewMatrix; // Matriz de vista
 Matrix ModelMatrix; // Matriz de modelo
 
 float CubeRotationAngle = 0; // Ángulo de rotación del objeto principal   
 clock_t LastTime = 0; // Tiempo del último frame
+
+float ObjectPositionX = 0.0f; // Posición X del objeto
+float ManualRotationAngle = 0.0f; // Ángulo de rotación manual
+bool AutoRotate = true; // Flag para rotación automática
 
 // =======================================================================
 // OBJ Loader
@@ -192,6 +201,35 @@ bool LoadOBJ(const std::string& path,
 
 
 // =======================================================================
+// Load Texture
+// =======================================================================
+GLuint LoadTexture(const char* path)
+{
+    int w, h, comp;
+    unsigned char* data = stbi_load(path, &w, &h, &comp, STBI_rgb_alpha);
+
+    if (!data) {
+        std::cout << "ERROR cargando textura: " << path << std::endl;
+        return 0;
+    }
+
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
+                GL_RGBA, GL_UNSIGNED_BYTE, data);
+
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    stbi_image_free(data);
+    return tex;
+}
+
+// =======================================================================
 // Prototipos
 // =======================================================================
 void Initialize(int, char*[]); // Inicialización
@@ -205,6 +243,7 @@ void CreateOBJ(void); // Crear objeto
 void DrawOBJ(void); // Dibujar objeto
 void CreateGround(void); // Crear suelo
 void DrawGround(void); // Dibujar suelo
+void KeyboardFunction(unsigned char, int, int); // Función de teclado
 // =======================================================================
 // MAIN
 // =======================================================================
@@ -264,6 +303,7 @@ void InitWindow(int argc, char* argv[])
     glutIdleFunc(IdleFunction);
     glutTimerFunc(0, TimerFunction, 0);
     glutCloseFunc(CleanUp);
+    glutKeyboardFunc(KeyboardFunction); // AGREGAR ESTA LÍNEA
 }
 
 // =======================================================================
@@ -325,8 +365,6 @@ void CleanUp(void)
 }
 
 // =======================================================================
-// Crear OBJ
-// =======================================================================
 void CreateOBJ()
 {
     printf("Cargando modelo OBJ...\n");
@@ -342,6 +380,7 @@ void CreateOBJ()
 
     IndexCount = idx.size();
 
+    // PRIMERO: Crear y vincular shaders
     ShaderIds[0] = glCreateProgram();
     ShaderIds[1] = LoadShader("SimpleShader.fragment.glsl", GL_FRAGMENT_SHADER);
     ShaderIds[2] = LoadShader("SimpleShader.vertex.glsl",   GL_VERTEX_SHADER);
@@ -350,6 +389,7 @@ void CreateOBJ()
     glAttachShader(ShaderIds[0], ShaderIds[2]);
     glLinkProgram(ShaderIds[0]);
 
+    // Obtener ubicaciones de uniforms
     ModelMatrixUniformLocation      = glGetUniformLocation(ShaderIds[0], "ModelMatrix");
     ViewMatrixUniformLocation       = glGetUniformLocation(ShaderIds[0], "ViewMatrix");
     ProjectionMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ProjectionMatrix");
@@ -359,6 +399,23 @@ void CreateOBJ()
     AmbientColorUniformLocation = glGetUniformLocation(ShaderIds[0], "AmbientColor");
     MaterialColorUniformLocation= glGetUniformLocation(ShaderIds[0], "MaterialColor");
 
+    GLuint UseTextureUniformLocation = glGetUniformLocation(ShaderIds[0], "UseTexture");
+
+    // AHORA: Cargar texturas DESPUÉS de tener el programa
+    BaseColorTex = LoadTexture("T_CartoonHouse_Base_color.png");
+    NormalTex    = LoadTexture("T_CartoonHouse_Normal.png");
+    RoughnessTex = LoadTexture("T_CartoonHouse_Roughness.png");
+    AOTex        = LoadTexture("T_CartoonHouse_AO.png");
+
+    // Asignar unidades de textura
+    glUseProgram(ShaderIds[0]);
+    glUniform1i(glGetUniformLocation(ShaderIds[0], "BaseColor"), 0);
+    glUniform1i(glGetUniformLocation(ShaderIds[0], "NormalMap"), 1);
+    glUniform1i(glGetUniformLocation(ShaderIds[0], "RoughnessMap"), 2);
+    glUniform1i(glGetUniformLocation(ShaderIds[0], "AOMap"), 3);
+    glUseProgram(0);
+
+    // Crear VAO/VBO/IBO
     glGenVertexArrays(1, &BufferIds[0]);
     glBindVertexArray(BufferIds[0]);
 
@@ -374,11 +431,71 @@ void CreateOBJ()
                         sizeof(Vertex),
                         (void*)(sizeof(float)*3));
 
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE,
+                    sizeof(Vertex),
+                    (void*)(sizeof(float)*6));
+
     glGenBuffers(1, &BufferIds[2]);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, BufferIds[2]);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, idx.size()*sizeof(GLuint), idx.data(), GL_STATIC_DRAW);
 
     glBindVertexArray(0);
+}
+
+// =======================================================================
+// Keyboard Handler
+// =======================================================================
+void KeyboardFunction(unsigned char key, int x, int y)
+{
+    switch (key)
+    {
+        case 'a': // Mover a la izquierda
+        case 'A':
+            ObjectPositionX -= 0.2f;
+            break;
+            
+        case 'd': // Mover a la derecha
+        case 'D':
+            ObjectPositionX += 0.2f;
+            break;
+            
+        case 'r': // Activar/desactivar rotación automática
+        case 'R':
+            AutoRotate = !AutoRotate;
+            if (AutoRotate) {
+                LastTime = 0; // Reiniciar el tiempo para rotación suave
+            }
+            printf("Rotación automática: %s\n", AutoRotate ? "ON" : "OFF");
+            break;
+            
+        case 'q': // Rotar manualmente a la izquierda
+        case 'Q':
+            if (!AutoRotate) {
+                ManualRotationAngle -= 5.0f;
+            }
+            break;
+            
+        case 'e': // Rotar manualmente a la derecha
+        case 'E':
+            if (!AutoRotate) {
+                ManualRotationAngle += 5.0f;
+            }
+            break;
+            
+        case 'c': // Centrar objeto
+        case 'C':
+            ObjectPositionX = 0.0f;
+            ManualRotationAngle = 0.0f;
+            printf("Objeto centrado\n");
+            break;
+            
+        case 27: // ESC para salir
+            glutLeaveMainLoop();
+            break;
+    }
+    
+    glutPostRedisplay();
 }
 
 // =======================================================================
@@ -389,22 +506,30 @@ void DrawOBJ()
     float angle;
     clock_t now = clock();
 
-    if (LastTime == 0)
-        LastTime = now;
+    if (AutoRotate)
+    {
+        // Rotación automática
+        if (LastTime == 0)
+            LastTime = now;
 
-    CubeRotationAngle += 15.0f * ((float)(now - LastTime) / CLOCKS_PER_SEC);
-    angle = DegreesToRadians(CubeRotationAngle);
-    LastTime = now;
+        CubeRotationAngle += 15.0f * ((float)(now - LastTime) / CLOCKS_PER_SEC);
+        angle = DegreesToRadians(CubeRotationAngle);
+        LastTime = now;
+    }
+    else
+    {
+        // Rotación manual
+        angle = DegreesToRadians(ManualRotationAngle);
+    }
 
     ModelMatrix = IDENTITY_MATRIX;
 
-    // Posicionar justo sobre el suelo (Y = -2.0 del suelo + altura)
-    TranslateMatrix(&ModelMatrix, 0.0f, -0.8f, 0.0f);
+    // Aplicar posición X manual
+    TranslateMatrix(&ModelMatrix, ObjectPositionX, -0.8f, 0.0f);
     
-    // Rotación animada en Y
+    // Aplicar rotación
     RotateAboutyAxis(&ModelMatrix, angle);
     
-    // Escala más pequeña: de 0.05 a 0.04
     ScaleMatrix(&ModelMatrix, 0.04f, 0.04f, 0.04f);
 
     glUseProgram(ShaderIds[0]);
@@ -413,7 +538,18 @@ void DrawOBJ()
     glUniformMatrix4fv(ViewMatrixUniformLocation,       1, GL_FALSE, ViewMatrix.m);
     glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
 
-    // Luz más direccional desde arriba-derecha
+    // Activar uso de texturas
+    glUniform1i(glGetUniformLocation(ShaderIds[0], "UseTexture"), 1);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, BaseColorTex);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, NormalTex);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, RoughnessTex);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, AOTex);
+
     glUniform3f(LightDirUniformLocation,     0.5f, 1.0f, 0.3f);
     glUniform3f(LightColorUniformLocation,   1.0f, 1.0f, 1.0f);
     glUniform3f(AmbientColorUniformLocation, 0.4f, 0.4f, 0.5f);
@@ -482,10 +618,12 @@ void DrawGround()
     glUniformMatrix4fv(ViewMatrixUniformLocation,       1, GL_FALSE, ViewMatrix.m);
     glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
 
+    // Desactivar uso de texturas para el suelo
+    glUniform1i(glGetUniformLocation(ShaderIds[0], "UseTexture"), 0);
+
     glUniform3f(LightDirUniformLocation,     0.5f, 1.0f, 0.3f);
     glUniform3f(LightColorUniformLocation,   1.0f, 1.0f, 1.0f);
     glUniform3f(AmbientColorUniformLocation, 0.4f, 0.4f, 0.5f);
-    // Color azul oscuro para el suelo
     glUniform3f(MaterialColorUniformLocation, 0.2f, 0.25f, 0.4f);
 
     glBindVertexArray(GroundVAO);
