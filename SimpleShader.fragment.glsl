@@ -3,6 +3,7 @@
 in vec3 FragNormal;
 in vec3 FragPos;
 in vec2 FragUV;
+in vec4 FragPosLightSpace;
 
 out vec4 FragColor;
 
@@ -10,78 +11,91 @@ uniform vec3 LightDir;
 uniform vec3 LightColor;
 uniform vec3 AmbientColor;
 uniform vec3 MaterialColor;
+uniform vec3 ViewPos;
 
 uniform sampler2D BaseColor;
-uniform sampler2D NormalMap;
-uniform sampler2D RoughnessMap;
-uniform sampler2D AOMap;
+uniform sampler2D ShadowMap;
 
 uniform bool UseTexture;
 
-vec3 getNormalFromMap()
+// Calcular sombra MEJORADO
+float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
 {
-    vec3 tangentNormal = texture(NormalMap, FragUV).xyz * 2.0 - 1.0;
+    // Perspectiva divide
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     
-    vec3 Q1 = dFdx(FragPos);
-    vec3 Q2 = dFdy(FragPos);
-    vec2 st1 = dFdx(FragUV);
-    vec2 st2 = dFdy(FragUV);
+    // Transformar de [-1,1] a [0,1]
+    projCoords = projCoords * 0.5 + 0.5;
     
-    vec3 N = normalize(FragNormal);
-    vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
-    vec3 B = -normalize(cross(N, T));
-    mat3 TBN = mat3(T, B, N);
+    // Si está fuera del rango [0,1], no hay sombra
+    if(projCoords.x < 0.0 || projCoords.x > 1.0 || 
+       projCoords.y < 0.0 || projCoords.y > 1.0 ||
+       projCoords.z > 1.0)
+        return 0.0;
     
-    return normalize(TBN * tangentNormal);
+    // Obtener profundidad desde el shadow map
+    float closestDepth = texture(ShadowMap, projCoords.xy).r;
+    
+    // Profundidad actual del fragmento
+    float currentDepth = projCoords.z;
+    
+    // Bias para evitar shadow acne
+    float bias = max(0.003 * (1.0 - dot(normal, lightDir)), 0.0005);
+    
+    // PCF (suavizado de sombras) - 3x3 kernel
+    float shadow = 0.0;
+    vec2 texelSize = 1.0 / textureSize(ShadowMap, 0);
+    
+    for(int x = -1; x <= 1; ++x)
+    {
+        for(int y = -1; y <= 1; ++y)
+        {
+            float pcfDepth = texture(ShadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
+            shadow += (currentDepth - bias) > pcfDepth ? 1.0 : 0.0;
+        }
+    }
+    shadow /= 9.0;
+    
+    return shadow;
 }
 
 void main()
 {
+    // Obtener color base
     vec3 baseColor;
-    float ao = 1.0;
-    vec3 normal;
-    float roughness = 0.5;
-    
     if (UseTexture) {
         baseColor = texture(BaseColor, FragUV).rgb;
-        normal = getNormalFromMap();
-        ao = texture(AOMap, FragUV).r;
-        roughness = texture(RoughnessMap, FragUV).r;
-        
-        // Ajuste de gamma para colores más vibrantes
-        baseColor = pow(baseColor, vec3(0.9));
+        baseColor = pow(baseColor, vec3(2.2)); // Gamma correction
     } else {
         baseColor = MaterialColor;
-        normal = normalize(FragNormal);
     }
     
+    // Normalizar vectores
+    vec3 normal = normalize(FragNormal);
     vec3 lightDir = normalize(LightDir);
+    vec3 viewDir = normalize(ViewPos - FragPos);
     
-    // Difusa mejorada
+    // AMBIENTE
+    vec3 ambient = AmbientColor * baseColor;
+    
+    // DIFUSA
     float diff = max(dot(normal, lightDir), 0.0);
-    diff = pow(diff, 0.8); // Suavizar transición de luz/sombra
-    vec3 diffuse = diff * LightColor;
+    vec3 diffuse = diff * LightColor * baseColor;
     
-    // Especular mejorado (Blinn-Phong)
-    vec3 viewDir = normalize(-FragPos);
-    vec3 halfDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfDir), 0.0), mix(8.0, 64.0, 1.0 - roughness));
-    vec3 specular = spec * LightColor * (1.0 - roughness) * 0.4;
+    // ESPECULAR (Phong)
+    vec3 reflectDir = reflect(-lightDir, normal);
+    float shininess = 32.0;
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
+    vec3 specular = spec * LightColor * 0.5;
     
-    // Rim light (luz de contorno) para dar más profundidad
-    float rim = 1.0 - max(dot(viewDir, normal), 0.0);
-    rim = pow(rim, 3.0);
-    vec3 rimLight = rim * LightColor * 0.15;
+    // CALCULAR SOMBRA
+    float shadow = ShadowCalculation(FragPosLightSpace, normal, lightDir);
     
-    // Combinar todo
-    vec3 ambient = AmbientColor * ao;
-    vec3 result = (ambient + diffuse + specular + rimLight) * baseColor;
+    // COMBINAR (sombra NO afecta ambiente, solo difusa y especular)
+    vec3 lighting = ambient + (1.0 - shadow * 0.85) * (diffuse + specular); // Sombras más oscuras (85%)
     
-    // Tone mapping simple para mejor rango dinámico
-    result = result / (result + vec3(1.0));
-    
-    // Gamma correction
-    result = pow(result, vec3(1.0/2.2));
+    // Gamma correction final
+    vec3 result = pow(lighting, vec3(1.0/2.2));
     
     FragColor = vec4(result, 1.0);
 }
