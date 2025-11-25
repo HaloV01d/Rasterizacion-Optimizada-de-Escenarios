@@ -1,15 +1,22 @@
 #include "Utils.h" // Incluye el archivo de cabecera Utils.h
-
+#include <vector>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <algorithm>
 #define WINDOW_TITLE_PREFIX "Rasterizacion_Optimizada_de_Escenarios" // Define el prefijo del título de la ventana
+
 
 int CurrentWidth = 800; // Ancho inicial de la ventana
 int CurrentHeight = 600; // Altura inicial de la ventana
 int WindowHandle = 0; // Manejador de la ventana
+size_t IndexCount = 0;
 
 unsigned FrameCount = 0; // Contador de frames
 
 GLuint
-ProjectionMatrixUniformLocation,
+ProjectionMatrixUniformLocation, 
 ViewMatrixUniformLocation,
 ModelMatrixUniformLocation,
 BufferIds[3] = { 0 },
@@ -31,12 +38,101 @@ void ResizeFunction(int, int);
 void RenderFunction(void);
 void TimerFunction(int);
 void IdleFunction(void);
-void CreateCube(void);
+void CreateOBJ(void);
 void DestroyCube(void);
-void DrawCube(void);
+void DrawOBJ(void);
 void KeyboardFunction(unsigned char, int, int);
 void CleanUp(void);
 
+bool LoadOBJ(const std::string& path,
+            std::vector<Vertex>& outVertices,
+            std::vector<GLuint>& outIndices)
+{
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "No pude abrir el OBJ: " << path << std::endl;
+        return false;
+    }
+
+    std::vector<GLfloat> tempPositions;
+    std::vector<GLfloat> tempNormals;
+
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream ss(line);
+        std::string type;
+        ss >> type;
+
+        if (type == "v") {
+            float x,y,z;
+            ss >> x >> y >> z;
+            tempPositions.push_back(x);
+            tempPositions.push_back(y);
+            tempPositions.push_back(z);
+        }
+        else if (type == "vn") {
+            float x,y,z;
+            ss >> x >> y >> z;
+            tempNormals.push_back(x);
+            tempNormals.push_back(y);
+            tempNormals.push_back(z);
+        }
+        else if (type == "f") {
+            // Asumimos TRIÁNGULOS
+            for (int i = 0; i < 3; ++i) {
+                std::string vert;
+                ss >> vert;          // ejemplo "12//5" o "12/3/5" o "12"
+
+                // separar por '/'
+                int vIndex = 0, nIndex = 0;
+                {
+                    std::replace(vert.begin(), vert.end(), '/', ' ');
+                    std::istringstream vs(vert);
+                    vs >> vIndex;   // índice de posición
+                    if (!(vs >> std::ws).eof()) {
+                        int tmp;    // posible vt
+                        if (vs >> tmp) {       // vt o vn
+                            if (!(vs >> std::ws).eof()) {
+                                vs >> nIndex;  // vn
+                            } else {
+                                nIndex = tmp;  // si solo hay vn
+                            }
+                        }
+                    }
+                }
+
+                // OBJ es 1-based → C++ 0-based
+                vIndex -= 1;
+                nIndex -= 1;
+
+                Vertex v{};
+                v.position[0] = tempPositions[3 * vIndex + 0];
+                v.position[1] = tempPositions[3 * vIndex + 1];
+                v.position[2] = tempPositions[3 * vIndex + 2];
+
+                if (!tempNormals.empty() && nIndex >= 0) {
+                    v.normal[0] = tempNormals[3 * nIndex + 0];
+                    v.normal[1] = tempNormals[3 * nIndex + 1];
+                    v.normal[2] = tempNormals[3 * nIndex + 2];
+                } else {
+                    // Por ahora normal (0,1,0) si no hay; luego se pueden calcular bien
+                    v.normal[0] = 0.0f;
+                    v.normal[1] = 1.0f;
+                    v.normal[2] = 0.0f;
+                }
+
+                outVertices.push_back(v);
+                outIndices.push_back(static_cast<GLuint>(outVertices.size() - 1));
+            }
+        }
+    }
+
+    std::cout << "OBJ cargado: " 
+            << outVertices.size() << " vertices, "
+            << outIndices.size()  << " indices.\n";
+
+    return true;
+}
 
 int main(int argc, char* argv[]) {
 
@@ -80,7 +176,7 @@ void Initialize(int argc, char* argv[]) { // Función de inicialización
     glCullFace(GL_BACK); // Establece las caras traseras para el recorte
     glFrontFace(GL_CCW); // Establece el sentido antihorario como frontal
 
-    CreateCube(); // Llama a la función para crear el cubo
+    CreateOBJ(); // Llama a la función para crear el cubo
 }
 
 
@@ -101,8 +197,8 @@ void InitWindow(int argc, char* argv[]) { // Función para inicializar la ventan
         exit(EXIT_FAILURE);
     }
 
-    glutReshapeFunc(ResizeFunction);
-    glutDisplayFunc(RenderFunction);
+    glutReshapeFunc(ResizeFunction); 
+    glutDisplayFunc(RenderFunction); 
     glutIdleFunc(IdleFunction);
     glutTimerFunc(0, TimerFunction, 0);
     glutKeyboardFunc(KeyboardFunction);
@@ -135,7 +231,7 @@ void RenderFunction(void) {
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    DrawCube(); // Llama a dibujar el cubo
+    DrawOBJ(); // Llama a dibujar el cubo
 
     glutSwapBuffers();
     glutPostRedisplay();
@@ -177,30 +273,22 @@ void CleanUp(void) {
 // ===============================
 //  CREAR EL CUBO
 // ===============================
-void CreateCube() {
+void CreateOBJ()
+{
+    printf("Cargando modelo OBJ...\n");
 
-    const Vertex Vertices[8] =
-    {
-        { { -.5f, -.5f,  .5f, 1 }, { 0, 0, 1, 1 } },
-        { { -.5f,  .5f,  .5f, 1 }, { 1, 0, 0, 1 } },
-        { {  .5f,  .5f,  .5f, 1 }, { 0, 1, 0, 1 } },
-        { {  .5f, -.5f,  .5f, 1 }, { 1, 1, 0, 1 } },
-        { { -.5f, -.5f, -.5f, 1 }, { 1, 1, 1, 1 } },
-        { { -.5f,  .5f, -.5f, 1 }, { 1, 0, 0, 1 } },
-        { {  .5f,  .5f, -.5f, 1 }, { 1, 0, 1, 1 } },
-        { {  .5f, -.5f, -.5f, 1 }, { 0, 0, 1, 1 } }
-    };
+    std::vector<Vertex> vertices;
+    std::vector<GLuint> indices;
 
-    const GLuint Indices[36] =
-    {
-        0,2,1,  0,3,2,
-        4,3,0,  4,7,3,
-        4,1,5,  4,0,1,
-        3,6,2,  3,7,6,
-        1,6,5,  1,2,6,
-        7,5,6,  7,4,5
-    };
+    if (!LoadOBJ("witchs_house.obj", vertices, indices)) {
+        printf("ERROR: No se pudo cargar el modelo OBJ.\n");
+        exit(-1);
+    }
 
+    printf("Modelo cargado: %zu vertices, %zu indices\n",
+        vertices.size(), indices.size());
+
+    // SHADERS
     ShaderIds[0] = glCreateProgram();
     {
         ShaderIds[1] = LoadShader("SimpleShader.fragment.glsl", GL_FRAGMENT_SHADER);
@@ -214,22 +302,39 @@ void CreateCube() {
     ViewMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ViewMatrix");
     ProjectionMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ProjectionMatrix");
 
+    // VAO + VBO + IBO
     glGenVertexArrays(1, &BufferIds[0]);
     glBindVertexArray(BufferIds[0]);
 
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
-
-    glGenBuffers(2, &BufferIds[1]);
-
+    glGenBuffers(1, &BufferIds[1]);
     glBindBuffer(GL_ARRAY_BUFFER, BufferIds[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), Vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER,
+        vertices.size() * sizeof(Vertex),
+        vertices.data(),
+        GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(Vertices[0]), (GLvoid*)0);
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertices[0]), (GLvoid*)sizeof(Vertices[0].Position));
+    // Atributos
+    glEnableVertexAttribArray(0); // posición
+    glVertexAttribPointer(
+        0, 3, GL_FLOAT, GL_FALSE,
+        sizeof(Vertex),
+        (GLvoid*)0);
 
+    glEnableVertexAttribArray(1); // normal
+    glVertexAttribPointer(
+        1, 3, GL_FLOAT, GL_FALSE,
+        sizeof(Vertex),
+        (GLvoid*)(sizeof(float) * 3));
+
+    glGenBuffers(1, &BufferIds[2]);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, BufferIds[2]);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Indices), Indices, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+        indices.size() * sizeof(GLuint),
+        indices.data(),
+        GL_STATIC_DRAW);
+
+    // Guardar conteo global
+    IndexCount = indices.size();
 
     glBindVertexArray(0);
 }
@@ -238,8 +343,8 @@ void CreateCube() {
 // ===============================
 //  DIBUJAR EL CUBO ROTANDO
 // ===============================
-void DrawCube(void) {
-
+void DrawOBJ(void)
+{
     float CubeAngle;
     clock_t Now = clock();
     if (LastTime == 0) {
@@ -247,12 +352,12 @@ void DrawCube(void) {
     }
 
     CubeRotationAngle += 45.0f * ((float)(Now - LastTime) / CLOCKS_PER_SEC);
-    CubeAngle = DegreesToRadians(CubeRotationAngle);
+    float Angle = DegreesToRadians(CubeRotationAngle);
     LastTime = Now;
 
     ModelMatrix = IDENTITY_MATRIX;
-    RotateAboutyAxis(&ModelMatrix, CubeAngle);
-    RotateAboutxAxis(&ModelMatrix, CubeAngle);
+    RotateAboutyAxis(&ModelMatrix, Angle);
+    RotateAboutxAxis(&ModelMatrix, Angle);
 
     glUseProgram(ShaderIds[0]);
 
@@ -261,12 +366,12 @@ void DrawCube(void) {
     glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
 
     glBindVertexArray(BufferIds[0]);
-
-    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, (GLvoid*)0);
+    glDrawElements(GL_TRIANGLES, IndexCount, GL_UNSIGNED_INT, (GLvoid*)0);
 
     glBindVertexArray(0);
     glUseProgram(0);
 }
+
 
 
 // ===============================

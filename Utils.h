@@ -10,10 +10,11 @@
 
 static const double PI = 3.1415926535897932384626433832795; // Define la constante PI
 
-typedef struct Vertex { // Estructura para un vértice con posición y color
-    float Position[4];
-    float Color[4];
+typedef struct {
+    GLfloat position[3];
+    GLfloat normal[3];
 } Vertex;
+
 
 typedef struct Matrix { // Estructura para una matriz 4x4
     float m[16];
