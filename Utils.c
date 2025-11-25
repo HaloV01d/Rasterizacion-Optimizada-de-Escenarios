@@ -19,21 +19,25 @@ float RadiansToDegrees(float radians) { // Función para convertir radianes a gr
     return radians * (float)(180.0f / PI);
 }
 
-Matrix MultiplyMatrices(const Matrix* m1, const Matrix* m2) // Función para multiplicar dos matrices
+Matrix MultiplyMatrices(const Matrix* a, const Matrix* b)
 {
-Matrix out = IDENTITY_MATRIX;
-unsigned int row, column, row_offset;
+    Matrix r = IDENTITY_MATRIX;
 
-  for (row = 0, row_offset = row * 4; row < 4; ++row, row_offset = row * 4)
-    for (column = 0; column < 4; ++column)
-    out.m[row_offset + column] =
-        (m1->m[row_offset + 0] * m2->m[column + 0]) +
-        (m1->m[row_offset + 1] * m2->m[column + 4]) +
-        (m1->m[row_offset + 2] * m2->m[column + 8]) +
-        (m1->m[row_offset + 3] * m2->m[column + 12]);
+    for (int row = 0; row < 4; row++)
+    {
+        for (int col = 0; col < 4; col++)
+        {
+            r.m[col + row * 4] =
+                a->m[0 + row * 4] * b->m[col + 0 * 4] +
+                a->m[1 + row * 4] * b->m[col + 1 * 4] +
+                a->m[2 + row * 4] * b->m[col + 2 * 4] +
+                a->m[3 + row * 4] * b->m[col + 3 * 4];
+        }
+    }
 
-return out;
+    return r;
 }
+
 
 void ScaleMatrix(Matrix* m, float x, float y, float z) // Función para escalar una matriz
 {

@@ -1,390 +1,494 @@
-#include "Utils.h" // Incluye el archivo de cabecera Utils.h
+#include "Utils.h"
 #include <vector>
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <iostream>
 #include <algorithm>
-#define WINDOW_TITLE_PREFIX "Rasterizacion_Optimizada_de_Escenarios" // Define el prefijo del título de la ventana
+#include <map>
 
+#define WINDOW_TITLE_PREFIX "Rasterizacion_Optimizada_de_Escenarios"
 
-int CurrentWidth = 800; // Ancho inicial de la ventana
-int CurrentHeight = 600; // Altura inicial de la ventana
-int WindowHandle = 0; // Manejador de la ventana
+int CurrentWidth = 800;
+int CurrentHeight = 600;
+int WindowHandle = 0;
+
 size_t IndexCount = 0;
+size_t GroundIndexCount = 0;
 
-unsigned FrameCount = 0; // Contador de frames
+unsigned FrameCount = 0;
 
 GLuint
-ProjectionMatrixUniformLocation, 
+ProjectionMatrixUniformLocation,
 ViewMatrixUniformLocation,
 ModelMatrixUniformLocation,
-BufferIds[3] = { 0 },
-ShaderIds[3] = { 0 };
+LightDirUniformLocation,
+LightColorUniformLocation,
+AmbientColorUniformLocation,
+MaterialColorUniformLocation;
 
-Matrix
-ProjectionMatrix,
-ViewMatrix,
-ModelMatrix;
+GLuint BufferIds[3] = {0};
+GLuint ShaderIds[3] = {0};
 
-float CubeRotationAngle = 0; // Ángulo de rotación del cubo
-clock_t LastTime = 0; // Tiempo del último frame
+GLuint GroundVAO = 0, GroundVBO = 0, GroundIBO = 0;
+
+Matrix ProjectionMatrix;
+Matrix ViewMatrix;
+Matrix ModelMatrix;
+
+float CubeRotationAngle = 0;
+clock_t LastTime = 0;
+
+// =======================================================================
+// OBJ Loader
+// =======================================================================
+bool LoadOBJ(const std::string& path,
+             std::vector<Vertex>& outVertices,
+             std::vector<GLuint>& outIndices)
+{
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cout << "ERROR: no se pudo abrir: " << path << std::endl;
+        return false;
+    }
+
+    std::vector<float> px, py, pz;
+    std::vector<float> tu, tv;
+    std::vector<float> nx, ny, nz;
+
+    struct Packed {
+        int v, vt, vn;
+        bool operator<(Packed const& o) const {
+            if (v != o.v) return v < o.v;
+            if (vt != o.vt) return vt < o.vt;
+            return vn < o.vn;
+        }
+    };
+
+    std::map<Packed, GLuint> indexMap;
+
+    std::string line;
+    while (std::getline(file, line))
+    {
+        std::stringstream ss(line);
+        std::string h;
+        ss >> h;
+
+        if (h == "v")
+        {
+            float x, y, z;
+            ss >> x >> y >> z;
+            px.push_back(x);
+            py.push_back(y);
+            pz.push_back(z);
+        }
+        else if (h == "vt")
+        {
+            float u, v;
+            ss >> u >> v;
+            tu.push_back(u);
+            tv.push_back(v);
+        }
+        else if (h == "vn")
+        {
+            float x, y, z;
+            ss >> x >> y >> z;
+            nx.push_back(x);
+            ny.push_back(y);
+            nz.push_back(z);
+        }
+        else if (h == "f")
+        {
+            std::vector<Packed> verts;
+            std::string tok;
+
+            while (ss >> tok)
+            {
+                int v = -1, vt = -1, vn = -1;
+
+                if (tok.find("//") != std::string::npos)
+                {
+                    // formato v//vn
+                    sscanf(tok.c_str(), "%d//%d", &v, &vn);
+                }
+                else if (tok.find('/') != std::string::npos)
+                {
+                    // formato v/vt/vn o v/vt
+                    int count = std::count(tok.begin(), tok.end(), '/');
+                    if (count == 2)
+                        sscanf(tok.c_str(), "%d/%d/%d", &v, &vt, &vn);
+                    else
+                        sscanf(tok.c_str(), "%d/%d", &v, &vt);
+                }
+                else
+                {
+                    // formato solo v
+                    sscanf(tok.c_str(), "%d", &v);
+                }
+
+                verts.push_back({ v - 1, vt - 1, vn - 1 });
+            }
+
+            // triangulación de cara N-lados
+            for (size_t i = 1; i + 1 < verts.size(); i++)
+            {
+                Packed tri[3] = { verts[0], verts[i], verts[i + 1] };
+
+                for (int k = 0; k < 3; k++)
+                {
+                    Packed p = tri[k];
+
+                    if (!indexMap.count(p))
+                    {
+                        Vertex v;
+
+                        // posición (siempre existe)
+                        v.position[0] = px[p.v];
+                        v.position[1] = py[p.v];
+                        v.position[2] = pz[p.v];
+
+                        // UV si existen
+                        if (p.vt >= 0)
+                        {
+                            v.uv[0] = tu[p.vt];
+                            v.uv[1] = tv[p.vt];
+                        }
+                        else
+                        {
+                            v.uv[0] = 0.0f;
+                            v.uv[1] = 0.0f;
+                        }
+
+                        // normales si existen
+                        if (p.vn >= 0)
+                        {
+                            v.normal[0] = nx[p.vn];
+                            v.normal[1] = ny[p.vn];
+                            v.normal[2] = nz[p.vn];
+                        }
+                        else
+                        {
+                            v.normal[0] = 0;
+                            v.normal[1] = 1;
+                            v.normal[2] = 0;
+                        }
+
+                        outVertices.push_back(v);
+                        indexMap[p] = outVertices.size() - 1;
+                    }
+
+                    outIndices.push_back(indexMap[p]);
+                }
+            }
+        }
+    }
+
+    std::cout << "OBJ CARGADO OK. Vertices: "
+              << outVertices.size() << "  Indices: "
+              << outIndices.size() << std::endl;
+
+    return true;
+}
 
 
-// Funciones
+// =======================================================================
+// Prototipos
+// =======================================================================
 void Initialize(int, char*[]);
 void InitWindow(int, char*[]);
 void ResizeFunction(int, int);
 void RenderFunction(void);
 void TimerFunction(int);
 void IdleFunction(void);
-void CreateOBJ(void);
-void DestroyCube(void);
-void DrawOBJ(void);
-void KeyboardFunction(unsigned char, int, int);
 void CleanUp(void);
 
-bool LoadOBJ(const std::string& path,
-            std::vector<Vertex>& outVertices,
-            std::vector<GLuint>& outIndices)
+void CreateOBJ(void);
+void DrawOBJ(void);
+void CreateGround(void);
+void DrawGround(void);
+
+// =======================================================================
+// MAIN
+// =======================================================================
+int main(int argc, char* argv[])
 {
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        std::cerr << "No pude abrir el OBJ: " << path << std::endl;
-        return false;
-    }
-
-    std::vector<GLfloat> tempPositions;
-    std::vector<GLfloat> tempNormals;
-
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream ss(line);
-        std::string type;
-        ss >> type;
-
-        if (type == "v") {
-            float x,y,z;
-            ss >> x >> y >> z;
-            tempPositions.push_back(x);
-            tempPositions.push_back(y);
-            tempPositions.push_back(z);
-        }
-        else if (type == "vn") {
-            float x,y,z;
-            ss >> x >> y >> z;
-            tempNormals.push_back(x);
-            tempNormals.push_back(y);
-            tempNormals.push_back(z);
-        }
-        else if (type == "f") {
-            // Asumimos TRIÁNGULOS
-            for (int i = 0; i < 3; ++i) {
-                std::string vert;
-                ss >> vert;          // ejemplo "12//5" o "12/3/5" o "12"
-
-                // separar por '/'
-                int vIndex = 0, nIndex = 0;
-                {
-                    std::replace(vert.begin(), vert.end(), '/', ' ');
-                    std::istringstream vs(vert);
-                    vs >> vIndex;   // índice de posición
-                    if (!(vs >> std::ws).eof()) {
-                        int tmp;    // posible vt
-                        if (vs >> tmp) {       // vt o vn
-                            if (!(vs >> std::ws).eof()) {
-                                vs >> nIndex;  // vn
-                            } else {
-                                nIndex = tmp;  // si solo hay vn
-                            }
-                        }
-                    }
-                }
-
-                // OBJ es 1-based → C++ 0-based
-                vIndex -= 1;
-                nIndex -= 1;
-
-                Vertex v{};
-                v.position[0] = tempPositions[3 * vIndex + 0];
-                v.position[1] = tempPositions[3 * vIndex + 1];
-                v.position[2] = tempPositions[3 * vIndex + 2];
-
-                if (!tempNormals.empty() && nIndex >= 0) {
-                    v.normal[0] = tempNormals[3 * nIndex + 0];
-                    v.normal[1] = tempNormals[3 * nIndex + 1];
-                    v.normal[2] = tempNormals[3 * nIndex + 2];
-                } else {
-                    // Por ahora normal (0,1,0) si no hay; luego se pueden calcular bien
-                    v.normal[0] = 0.0f;
-                    v.normal[1] = 1.0f;
-                    v.normal[2] = 0.0f;
-                }
-
-                outVertices.push_back(v);
-                outIndices.push_back(static_cast<GLuint>(outVertices.size() - 1));
-            }
-        }
-    }
-
-    std::cout << "OBJ cargado: " 
-            << outVertices.size() << " vertices, "
-            << outIndices.size()  << " indices.\n";
-
-    return true;
+    Initialize(argc, argv);
+    glutMainLoop();
+    return 0;
 }
 
-int main(int argc, char* argv[]) {
+// =======================================================================
+// Inicialización
+// =======================================================================
+void Initialize(int argc, char* argv[])
+{
+    InitWindow(argc, argv);
 
-    printf("Entrando a main...\n");
-    Initialize(argc, argv); // Llama a la función de inicialización
-    printf("Despues de Initialize...\n");
-    glutMainLoop(); // Entra en el bucle principal de GLUT
-
-    printf("Despues de glutMainLoop (solo si algun dia sale)...\n");
-    getchar(); // Mantiene la consola abierta si glutMainLoop retorna
-
-    exit(EXIT_SUCCESS); // Sale del programa exitosamente
-}
-
-
-void Initialize(int argc, char* argv[]) { // Función de inicialización
-    GLenum GlewInitResult; // Variable para almacenar el resultado de la inicialización de GLEW
-
-    InitWindow(argc, argv); // Llama a la función para inicializar la ventana
-
-    GlewInitResult = glewInit(); // Inicializa GLEW
-
-    if (GLEW_OK != GlewInitResult) {
-        fprintf(stderr, "ERROR: %s\n", glewGetErrorString(GlewInitResult)); // Imprime un error si GLEW no se inicializa correctamente
-        exit(EXIT_FAILURE); // Sale del programa con fallo
+    if (glewInit() != GLEW_OK)
+    {
+        std::cout << "Error inicializando GLEW\n";
+        exit(1);
     }
 
-    fprintf(stdout, "INFO: OPENGL Version: %s\n", glGetString(GL_VERSION)); // Imprime la versión de OpenGL
+    printf("OpenGL Version: %s\n", glGetString(GL_VERSION));
 
-    ModelMatrix = IDENTITY_MATRIX; // Inicializa la matriz modelo como la matriz identidad
-    ProjectionMatrix = IDENTITY_MATRIX; // Inicializa la matriz de proyección como la matriz identidad
-    ViewMatrix = IDENTITY_MATRIX; // Inicializa la matriz vista como la matriz identidad
-    TranslateMatrix(&ViewMatrix, 0, 0, -2); // Traslada la matriz vista
+    ModelMatrix      = IDENTITY_MATRIX;
+    ProjectionMatrix = IDENTITY_MATRIX;
+    ViewMatrix       = IDENTITY_MATRIX;
 
-    // Habilitar OpenGL
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f); // Establece el color
-    glEnable(GL_DEPTH_TEST); // Habilita la prueba de profundidad
-    glDepthFunc(GL_LESS); // Establece la función de profundidad
+    // 👁 CAMARA FIX: Más lejos y más arriba
+    TranslateMatrix(&ViewMatrix, 0.0f, -3.0f, -40.0f);
 
-    glEnable(GL_CULL_FACE); // Habilita el recorte de caras
-    glCullFace(GL_BACK); // Establece las caras traseras para el recorte
-    glFrontFace(GL_CCW); // Establece el sentido antihorario como frontal
+    glClearColor(0.4f, 0.7f, 1.0f, 1.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
 
-    CreateOBJ(); // Llama a la función para crear el cubo
+    CreateOBJ();
+    CreateGround();
 }
 
+// =======================================================================
+// Ventana
+// =======================================================================
+void InitWindow(int argc, char* argv[])
+{
+    glutInit(&argc, argv);
+    glutInitContextVersion(4, 3);
+    glutInitContextProfile(GLUT_CORE_PROFILE);
+    glutInitWindowSize(CurrentWidth, CurrentHeight);
+    glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA);
 
-void InitWindow(int argc, char* argv[]) { // Función para inicializar la ventana
-    glutInit(&argc, argv); // Inicializa GLUT
-    glutInitContextVersion(4, 3); // Establece la versión del contexto OpenGL
-    glutInitContextFlags(GLUT_FORWARD_COMPATIBLE); // Establece las banderas del contexto OpenGL
-    glutInitContextProfile(GLUT_CORE_PROFILE); // Establece el perfil del contexto OpenGL
+    WindowHandle = glutCreateWindow(WINDOW_TITLE_PREFIX);
 
-    glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS);
-
-    glutInitWindowSize(CurrentWidth, CurrentHeight); // Inicializa el tamaño de la ventana
-    glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA); // Inicializa el modo de visualización
-    WindowHandle = glutCreateWindow(WINDOW_TITLE_PREFIX); // Crea la ventana
-
-    if (WindowHandle < 1) {
-        fprintf(stderr, "ERROR: Could not create a new rendering window.\n");
-        exit(EXIT_FAILURE);
-    }
-
-    glutReshapeFunc(ResizeFunction); 
-    glutDisplayFunc(RenderFunction); 
+    glutReshapeFunc(ResizeFunction);
+    glutDisplayFunc(RenderFunction);
     glutIdleFunc(IdleFunction);
     glutTimerFunc(0, TimerFunction, 0);
-    glutKeyboardFunc(KeyboardFunction);
     glutCloseFunc(CleanUp);
 }
 
+// =======================================================================
+// Resize
+// =======================================================================
+void ResizeFunction(int W, int H)
+{
+    CurrentWidth  = W;
+    CurrentHeight = H;
 
-void KeyboardFunction(unsigned char Key, int X, int Y) {
-    // No usamos teclas ahora
-}
-
-
-void ResizeFunction(int Width, int Height) {
-    CurrentWidth = Width;
-    CurrentHeight = Height;
-
-    glViewport(0, 0, CurrentWidth, CurrentHeight);
+    glViewport(0,0,W,H);
 
     ProjectionMatrix = CreateProjectionMatrix(
-        60,
-        (float)CurrentWidth / (float)CurrentHeight,
+        60.0f,
+        (float)W / (float)H,
         0.1f,
-        100.0f
+        200.0f
     );
 }
 
-
-void RenderFunction(void) {
-    ++FrameCount;
-
+// =======================================================================
+// Render Loop
+// =======================================================================
+void RenderFunction(void)
+{
+    FrameCount++;
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    DrawOBJ(); // Llama a dibujar el cubo
+    DrawOBJ();
+    DrawGround();
 
     glutSwapBuffers();
     glutPostRedisplay();
 }
 
-
-void IdleFunction(void) {
+// =======================================================================
+// Idle
+// =======================================================================
+void IdleFunction(void)
+{
     glutPostRedisplay();
 }
 
-
-void TimerFunction(int Value) {
-    if (Value != 0) {
-        char* TempString = (char*)malloc(512 + strlen(WINDOW_TITLE_PREFIX));
-
-        sprintf(
-            TempString,
-            "%s: %d FPS @ %d x %d",
-            WINDOW_TITLE_PREFIX,
-            FrameCount * 4,
-            CurrentWidth,
-            CurrentHeight
-        );
-
-        glutSetWindowTitle(TempString);
-        free(TempString);
-    }
-
+// =======================================================================
+// Timer
+// =======================================================================
+void TimerFunction(int Value)
+{
     FrameCount = 0;
     glutTimerFunc(250, TimerFunction, 1);
 }
 
-
-void CleanUp(void) {
-    DestroyCube();
+// =======================================================================
+// Clean
+// =======================================================================
+void CleanUp(void)
+{
+    glDeleteProgram(ShaderIds[0]);
 }
 
-
-// ===============================
-//  CREAR EL CUBO
-// ===============================
+// =======================================================================
+// Crear OBJ
+// =======================================================================
 void CreateOBJ()
 {
     printf("Cargando modelo OBJ...\n");
 
-    std::vector<Vertex> vertices;
-    std::vector<GLuint> indices;
+    std::vector<Vertex> verts;
+    std::vector<GLuint> idx;
 
-    if (!LoadOBJ("witchs_house.obj", vertices, indices)) {
-        printf("ERROR: No se pudo cargar el modelo OBJ.\n");
-        exit(-1);
-    }
-
-    printf("Modelo cargado: %zu vertices, %zu indices\n",
-        vertices.size(), indices.size());
-
-    // SHADERS
-    ShaderIds[0] = glCreateProgram();
+    if (!LoadOBJ("backpack_house.obj", verts, idx))
     {
-        ShaderIds[1] = LoadShader("SimpleShader.fragment.glsl", GL_FRAGMENT_SHADER);
-        ShaderIds[2] = LoadShader("SimpleShader.vertex.glsl", GL_VERTEX_SHADER);
-        glAttachShader(ShaderIds[0], ShaderIds[1]);
-        glAttachShader(ShaderIds[0], ShaderIds[2]);
+        printf("ERROR cargando OBJ.\n");
+        exit(1);
     }
+
+    IndexCount = idx.size();
+
+    ShaderIds[0] = glCreateProgram();
+    ShaderIds[1] = LoadShader("SimpleShader.fragment.glsl", GL_FRAGMENT_SHADER);
+    ShaderIds[2] = LoadShader("SimpleShader.vertex.glsl",   GL_VERTEX_SHADER);
+
+    glAttachShader(ShaderIds[0], ShaderIds[1]);
+    glAttachShader(ShaderIds[0], ShaderIds[2]);
     glLinkProgram(ShaderIds[0]);
 
-    ModelMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ModelMatrix");
-    ViewMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ViewMatrix");
+    ModelMatrixUniformLocation      = glGetUniformLocation(ShaderIds[0], "ModelMatrix");
+    ViewMatrixUniformLocation       = glGetUniformLocation(ShaderIds[0], "ViewMatrix");
     ProjectionMatrixUniformLocation = glGetUniformLocation(ShaderIds[0], "ProjectionMatrix");
 
-    // VAO + VBO + IBO
+    LightDirUniformLocation     = glGetUniformLocation(ShaderIds[0], "LightDir");
+    LightColorUniformLocation   = glGetUniformLocation(ShaderIds[0], "LightColor");
+    AmbientColorUniformLocation = glGetUniformLocation(ShaderIds[0], "AmbientColor");
+    MaterialColorUniformLocation= glGetUniformLocation(ShaderIds[0], "MaterialColor");
+
     glGenVertexArrays(1, &BufferIds[0]);
     glBindVertexArray(BufferIds[0]);
 
     glGenBuffers(1, &BufferIds[1]);
     glBindBuffer(GL_ARRAY_BUFFER, BufferIds[1]);
-    glBufferData(GL_ARRAY_BUFFER,
-        vertices.size() * sizeof(Vertex),
-        vertices.data(),
-        GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(Vertex), verts.data(), GL_STATIC_DRAW);
 
-    // Atributos
-    glEnableVertexAttribArray(0); // posición
-    glVertexAttribPointer(
-        0, 3, GL_FLOAT, GL_FALSE,
-        sizeof(Vertex),
-        (GLvoid*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
 
-    glEnableVertexAttribArray(1); // normal
-    glVertexAttribPointer(
-        1, 3, GL_FLOAT, GL_FALSE,
-        sizeof(Vertex),
-        (GLvoid*)(sizeof(float) * 3));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
+                        sizeof(Vertex),
+                        (void*)(sizeof(float)*3));
 
     glGenBuffers(1, &BufferIds[2]);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, BufferIds[2]);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-        indices.size() * sizeof(GLuint),
-        indices.data(),
-        GL_STATIC_DRAW);
-
-    // Guardar conteo global
-    IndexCount = indices.size();
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, idx.size()*sizeof(GLuint), idx.data(), GL_STATIC_DRAW);
 
     glBindVertexArray(0);
 }
 
-
-// ===============================
-//  DIBUJAR EL CUBO ROTANDO
-// ===============================
-void DrawOBJ(void)
+// =======================================================================
+// Draw OBJ
+// =======================================================================
+void DrawOBJ()
 {
-    float CubeAngle;
-    clock_t Now = clock();
-    if (LastTime == 0) {
-        LastTime = Now;
-    }
+    float angle;
+    clock_t now = clock();
 
-    CubeRotationAngle += 45.0f * ((float)(Now - LastTime) / CLOCKS_PER_SEC);
-    float Angle = DegreesToRadians(CubeRotationAngle);
-    LastTime = Now;
+    if (LastTime == 0)
+        LastTime = now;
+
+    CubeRotationAngle += 15.0f * ((float)(now - LastTime) / CLOCKS_PER_SEC);
+    angle = DegreesToRadians(CubeRotationAngle);
+    LastTime = now;
 
     ModelMatrix = IDENTITY_MATRIX;
-    RotateAboutyAxis(&ModelMatrix, Angle);
-    RotateAboutxAxis(&ModelMatrix, Angle);
+
+    // Primero trasladar a la posición sobre el suelo
+    TranslateMatrix(&ModelMatrix, 0.0f, -1.5f, 0.0f);
+    
+    // Rotación para animación (solo en Y para mantenerlo vertical)
+    RotateAboutyAxis(&ModelMatrix, angle);
+    
+    // Escalar el modelo
+    ScaleMatrix(&ModelMatrix, 0.1f, 0.1f, 0.1f);
 
     glUseProgram(ShaderIds[0]);
 
-    glUniformMatrix4fv(ModelMatrixUniformLocation, 1, GL_FALSE, ModelMatrix.m);
-    glUniformMatrix4fv(ViewMatrixUniformLocation, 1, GL_FALSE, ViewMatrix.m);
+    glUniformMatrix4fv(ModelMatrixUniformLocation,      1, GL_FALSE, ModelMatrix.m);
+    glUniformMatrix4fv(ViewMatrixUniformLocation,       1, GL_FALSE, ViewMatrix.m);
     glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
 
-    glBindVertexArray(BufferIds[0]);
-    glDrawElements(GL_TRIANGLES, IndexCount, GL_UNSIGNED_INT, (GLvoid*)0);
+    glUniform3f(LightDirUniformLocation,     0.5f, 1.0f, 0.3f);
+    glUniform3f(LightColorUniformLocation,   1.0f, 1.0f, 1.0f);
+    glUniform3f(AmbientColorUniformLocation, 0.2f, 0.2f, 0.25f);
+    glUniform3f(MaterialColorUniformLocation,0.7f, 0.4f, 0.2f);
 
+    glBindVertexArray(BufferIds[0]);
+    glDrawElements(GL_TRIANGLES, IndexCount, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
+
     glUseProgram(0);
 }
 
+// =======================================================================
+// Crear terreno
+// =======================================================================
+void CreateGround()
+{
+    Vertex V[4];
 
+    V[0].position[0] = -15; V[0].position[1] = -1.5f; V[0].position[2] = -15;
+    V[1].position[0] =  15; V[1].position[1] = -1.5f; V[1].position[2] = -15;
+    V[2].position[0] =  15; V[2].position[1] = -1.5f; V[2].position[2] =  15;
+    V[3].position[0] = -15; V[3].position[1] = -1.5f; V[3].position[2] =  15;
 
-// ===============================
-//  DESTRUIR CUBO
-// ===============================
-void DestroyCube(void) {
+    for (int i=0;i<4;i++)
+    {
+        V[i].normal[0] = 0;
+        V[i].normal[1] = 1;
+        V[i].normal[2] = 0;
+    }
 
-    glDetachShader(ShaderIds[0], ShaderIds[1]);
-    glDetachShader(ShaderIds[0], ShaderIds[2]);
-    glDeleteShader(ShaderIds[1]);
-    glDeleteShader(ShaderIds[2]);
-    glDeleteProgram(ShaderIds[0]);
+    GLuint I[6] = {0,1,2, 2,3,0};
+    GroundIndexCount = 6;
 
-    glDeleteBuffers(2, &BufferIds[1]);
-    glDeleteVertexArrays(1, &BufferIds[0]);
+    glGenVertexArrays(1, &GroundVAO);
+    glBindVertexArray(GroundVAO);
+
+    glGenBuffers(1, &GroundVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, GroundVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(V), V, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),(void*)0);
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),(void*)(sizeof(float)*3));
+
+    glGenBuffers(1, &GroundIBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, GroundIBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(I), I, GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
+}
+
+// =======================================================================
+// Draw Ground
+// =======================================================================
+void DrawGround()
+{
+    ModelMatrix = IDENTITY_MATRIX;
+
+    glUseProgram(ShaderIds[0]);
+
+    glUniformMatrix4fv(ModelMatrixUniformLocation,      1, GL_FALSE, ModelMatrix.m);
+    glUniformMatrix4fv(ViewMatrixUniformLocation,       1, GL_FALSE, ViewMatrix.m);
+    glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
+
+    glUniform3f(LightDirUniformLocation,     0.5f, 1.0f, 0.3f);
+    glUniform3f(LightColorUniformLocation,   1.0f, 1.0f, 1.0f);
+    glUniform3f(AmbientColorUniformLocation, 0.2f, 0.2f, 0.25f);
+    glUniform3f(MaterialColorUniformLocation,0.1f, 0.5f, 0.1f);
+
+    glBindVertexArray(GroundVAO);
+    glDrawElements(GL_TRIANGLES, GroundIndexCount, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+
+    glUseProgram(0);
 }

@@ -11,8 +11,9 @@
 static const double PI = 3.1415926535897932384626433832795; // Define la constante PI
 
 typedef struct {
-    GLfloat position[3];
-    GLfloat normal[3];
+    float position[3];
+    float normal[3];
+    float uv[2];
 } Vertex;
 
 

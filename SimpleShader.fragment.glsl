@@ -1,19 +1,25 @@
 #version 430 core
 
-in vec3 ex_Normal;
-in vec3 ex_Position;
+in vec3 vNormal;
+in vec3 vWorldPos;
+
+uniform vec3 LightDir;        // dirección de la luz
+uniform vec3 LightColor;      // color de la luz
+uniform vec3 AmbientColor;    // luz ambiente
+uniform vec3 MaterialColor;   // color base del objeto
 
 out vec4 out_Color;
 
 void main()
 {
-    vec3 N = normalize(ex_Normal);
-    vec3 L = normalize(vec3(0.5, 1.0, 0.3)); // dirección de la luz
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(-LightDir);  // luz que viene de LightDir
 
     float diff = max(dot(N, L), 0.0);
 
-    vec3 baseColor = vec3(0.6, 0.8, 1.0);
-    vec3 color = baseColor * (0.2 + 0.8 * diff); // algo de ambiente + difusa
+    vec3 color =
+        AmbientColor * MaterialColor +
+        diff * LightColor * MaterialColor;
 
     out_Color = vec4(color, 1.0);
 }
