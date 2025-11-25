@@ -273,11 +273,11 @@ void Initialize(int argc, char* argv[])
     ProjectionMatrix = IDENTITY_MATRIX;
     ViewMatrix       = IDENTITY_MATRIX;
 
-    // Cámara más cerca y ligeramente elevada
-    TranslateMatrix(&ViewMatrix, 0.0f, -1.5f, -8.0f);
+    // Cámara ajustada para mejor vista
+    TranslateMatrix(&ViewMatrix, 0.0f, -1.8f, -7.5f);
 
-    // Fondo azul como tu imagen de referencia
-    glClearColor(0.35f, 0.45f, 0.65f, 1.0f);
+    // Fondo más cálido/beige como la imagen
+    glClearColor(0.82f, 0.76f, 0.65f, 1.0f);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
 
@@ -508,7 +508,6 @@ void DrawOBJ()
 
     if (AutoRotate)
     {
-        // Rotación automática
         if (LastTime == 0)
             LastTime = now;
 
@@ -518,19 +517,14 @@ void DrawOBJ()
     }
     else
     {
-        // Rotación manual
         angle = DegreesToRadians(ManualRotationAngle);
     }
 
     ModelMatrix = IDENTITY_MATRIX;
 
-    // Aplicar posición X manual
-    TranslateMatrix(&ModelMatrix, ObjectPositionX, -0.8f, 0.0f);
-    
-    // Aplicar rotación
+    TranslateMatrix(&ModelMatrix, ObjectPositionX, -1.0f, 0.0f);
     RotateAboutyAxis(&ModelMatrix, angle);
-    
-    ScaleMatrix(&ModelMatrix, 0.04f, 0.04f, 0.04f);
+    ScaleMatrix(&ModelMatrix, 0.045f, 0.045f, 0.045f); // Ligeramente más grande
 
     glUseProgram(ShaderIds[0]);
 
@@ -538,7 +532,6 @@ void DrawOBJ()
     glUniformMatrix4fv(ViewMatrixUniformLocation,       1, GL_FALSE, ViewMatrix.m);
     glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
 
-    // Activar uso de texturas
     glUniform1i(glGetUniformLocation(ShaderIds[0], "UseTexture"), 1);
 
     glActiveTexture(GL_TEXTURE0);
@@ -550,10 +543,11 @@ void DrawOBJ()
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, AOTex);
 
-    glUniform3f(LightDirUniformLocation,     0.5f, 1.0f, 0.3f);
-    glUniform3f(LightColorUniformLocation,   1.0f, 1.0f, 1.0f);
-    glUniform3f(AmbientColorUniformLocation, 0.4f, 0.4f, 0.5f);
-    glUniform3f(MaterialColorUniformLocation, 0.85f, 0.65f, 0.45f);
+    // Iluminación más suave y cálida
+    glUniform3f(LightDirUniformLocation,     0.3f, 1.0f, 0.5f);
+    glUniform3f(LightColorUniformLocation,   1.0f, 0.98f, 0.95f);
+    glUniform3f(AmbientColorUniformLocation, 0.5f, 0.48f, 0.45f);
+    glUniform3f(MaterialColorUniformLocation, 1.0f, 1.0f, 1.0f);
 
     glBindVertexArray(BufferIds[0]);
     glDrawElements(GL_TRIANGLES, IndexCount, GL_UNSIGNED_INT, 0);
@@ -618,13 +612,13 @@ void DrawGround()
     glUniformMatrix4fv(ViewMatrixUniformLocation,       1, GL_FALSE, ViewMatrix.m);
     glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
 
-    // Desactivar uso de texturas para el suelo
     glUniform1i(glGetUniformLocation(ShaderIds[0], "UseTexture"), 0);
 
-    glUniform3f(LightDirUniformLocation,     0.5f, 1.0f, 0.3f);
-    glUniform3f(LightColorUniformLocation,   1.0f, 1.0f, 1.0f);
-    glUniform3f(AmbientColorUniformLocation, 0.4f, 0.4f, 0.5f);
-    glUniform3f(MaterialColorUniformLocation, 0.2f, 0.25f, 0.4f);
+    glUniform3f(LightDirUniformLocation,     0.3f, 1.0f, 0.5f);
+    glUniform3f(LightColorUniformLocation,   1.0f, 0.98f, 0.95f);
+    glUniform3f(AmbientColorUniformLocation, 0.5f, 0.48f, 0.45f);
+    // Color beige/crema para el suelo
+    glUniform3f(MaterialColorUniformLocation, 0.75f, 0.70f, 0.62f);
 
     glBindVertexArray(GroundVAO);
     glDrawElements(GL_TRIANGLES, GroundIndexCount, GL_UNSIGNED_INT, 0);
