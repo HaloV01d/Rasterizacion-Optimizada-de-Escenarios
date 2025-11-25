@@ -1,50 +1,50 @@
-#include "Utils.h"
-#include <vector>
-#include <string>
-#include <fstream>
-#include <sstream>
-#include <iostream>
-#include <algorithm>
-#include <map>
+#include "Utils.h" // Para funciones de matrices y carga de shaders
+#include <vector> // Para std::vector
+#include <string> // Para std::string
+#include <fstream> // Para std::ifstream
+#include <sstream> // Para std::stringstream
+#include <iostream> // Para std::cout, std::endl
+#include <algorithm> // Para std::count
+#include <map> // Para std::map
 
-#define WINDOW_TITLE_PREFIX "Rasterizacion_Optimizada_de_Escenarios"
+#define WINDOW_TITLE_PREFIX "Rasterizacion_Optimizada_de_Escenarios" // Título de la ventana
 
-int CurrentWidth = 800;
-int CurrentHeight = 600;
-int WindowHandle = 0;
+int CurrentWidth = 800;  // Ancho actual de la ventana
+int CurrentHeight = 600; // Alto actual de la ventana
+int WindowHandle = 0; // Manejador de la ventana GLUT
 
-size_t IndexCount = 0;
-size_t GroundIndexCount = 0;
+size_t IndexCount = 0; // Número de índices para el objeto principal
+size_t GroundIndexCount = 0; // Número de índices para el suelo
 
-unsigned FrameCount = 0;
+unsigned FrameCount = 0; // Contador de frames renderizados
 
 GLuint
-ProjectionMatrixUniformLocation,
-ViewMatrixUniformLocation,
-ModelMatrixUniformLocation,
-LightDirUniformLocation,
-LightColorUniformLocation,
-AmbientColorUniformLocation,
-MaterialColorUniformLocation;
+ProjectionMatrixUniformLocation, // Ubicación uniforme de la matriz de proyección
+ViewMatrixUniformLocation, // Ubicación uniforme de la matriz de vista
+ModelMatrixUniformLocation, // Ubicación uniforme de la matriz de modelo
+LightDirUniformLocation, // Ubicación uniforme de la dirección de la luz
+LightColorUniformLocation, // Ubicación uniforme del color de la luz
+AmbientColorUniformLocation, // Ubicación uniforme del color ambiental
+MaterialColorUniformLocation; // Ubicación uniforme del color del material
 
-GLuint BufferIds[3] = {0};
-GLuint ShaderIds[3] = {0};
+GLuint BufferIds[3] = {0}; // VAO, VBO, IBO para el objeto principal
+GLuint ShaderIds[3] = {0}; // IDs de shaders (vertex, fragment, program)    
 
-GLuint GroundVAO = 0, GroundVBO = 0, GroundIBO = 0;
+GLuint GroundVAO = 0, GroundVBO = 0, GroundIBO = 0; // VAO, VBO, IBO para el suelo
 
-Matrix ProjectionMatrix;
-Matrix ViewMatrix;
-Matrix ModelMatrix;
+Matrix ProjectionMatrix; // Matriz de proyección
+Matrix ViewMatrix; // Matriz de vista
+Matrix ModelMatrix; // Matriz de modelo
 
-float CubeRotationAngle = 0;
-clock_t LastTime = 0;
+float CubeRotationAngle = 0; // Ángulo de rotación del objeto principal   
+clock_t LastTime = 0; // Tiempo del último frame
 
 // =======================================================================
 // OBJ Loader
 // =======================================================================
 bool LoadOBJ(const std::string& path,
-             std::vector<Vertex>& outVertices,
-             std::vector<GLuint>& outIndices)
+            std::vector<Vertex>& outVertices,
+            std::vector<GLuint>& outIndices)
 {
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -184,8 +184,8 @@ bool LoadOBJ(const std::string& path,
     }
 
     std::cout << "OBJ CARGADO OK. Vertices: "
-              << outVertices.size() << "  Indices: "
-              << outIndices.size() << std::endl;
+            << outVertices.size() << "  Indices: "
+            << outIndices.size() << std::endl;
 
     return true;
 }
@@ -194,26 +194,24 @@ bool LoadOBJ(const std::string& path,
 // =======================================================================
 // Prototipos
 // =======================================================================
-void Initialize(int, char*[]);
-void InitWindow(int, char*[]);
-void ResizeFunction(int, int);
-void RenderFunction(void);
-void TimerFunction(int);
-void IdleFunction(void);
-void CleanUp(void);
-
-void CreateOBJ(void);
-void DrawOBJ(void);
-void CreateGround(void);
-void DrawGround(void);
-
+void Initialize(int, char*[]); // Inicialización
+void InitWindow(int, char*[]); // Ventana
+void ResizeFunction(int, int); // Resize
+void RenderFunction(void); // Render
+void TimerFunction(int); // Timer
+void IdleFunction(void); // Idle
+void CleanUp(void); // Limpieza
+void CreateOBJ(void); // Crear objeto
+void DrawOBJ(void); // Dibujar objeto
+void CreateGround(void); // Crear suelo
+void DrawGround(void); // Dibujar suelo
 // =======================================================================
 // MAIN
 // =======================================================================
 int main(int argc, char* argv[])
 {
-    Initialize(argc, argv);
-    glutMainLoop();
+    Initialize(argc, argv); // Inicialización
+    glutMainLoop(); // Bucle principal de GLUT
     return 0;
 }
 
@@ -236,10 +234,11 @@ void Initialize(int argc, char* argv[])
     ProjectionMatrix = IDENTITY_MATRIX;
     ViewMatrix       = IDENTITY_MATRIX;
 
-    // 👁 CAMARA FIX: Más lejos y más arriba
-    TranslateMatrix(&ViewMatrix, 0.0f, -3.0f, -40.0f);
+    // Cámara más cerca y ligeramente elevada
+    TranslateMatrix(&ViewMatrix, 0.0f, -1.5f, -8.0f);
 
-    glClearColor(0.4f, 0.7f, 1.0f, 1.0f);
+    // Fondo azul como tu imagen de referencia
+    glClearColor(0.35f, 0.45f, 0.65f, 1.0f);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
 
@@ -293,8 +292,8 @@ void RenderFunction(void)
     FrameCount++;
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    DrawOBJ();
-    DrawGround();
+    DrawOBJ(); // Dibujar objeto principal
+    DrawGround(); // Dibujar suelo
 
     glutSwapBuffers();
     glutPostRedisplay();
@@ -399,14 +398,14 @@ void DrawOBJ()
 
     ModelMatrix = IDENTITY_MATRIX;
 
-    // Primero trasladar a la posición sobre el suelo
-    TranslateMatrix(&ModelMatrix, 0.0f, -1.5f, 0.0f);
+    // Posicionar justo sobre el suelo (Y = -2.0 del suelo + altura)
+    TranslateMatrix(&ModelMatrix, 0.0f, -0.8f, 0.0f);
     
-    // Rotación para animación (solo en Y para mantenerlo vertical)
+    // Rotación animada en Y
     RotateAboutyAxis(&ModelMatrix, angle);
     
-    // Escalar el modelo
-    ScaleMatrix(&ModelMatrix, 0.1f, 0.1f, 0.1f);
+    // Escala más pequeña: de 0.05 a 0.04
+    ScaleMatrix(&ModelMatrix, 0.04f, 0.04f, 0.04f);
 
     glUseProgram(ShaderIds[0]);
 
@@ -414,10 +413,11 @@ void DrawOBJ()
     glUniformMatrix4fv(ViewMatrixUniformLocation,       1, GL_FALSE, ViewMatrix.m);
     glUniformMatrix4fv(ProjectionMatrixUniformLocation, 1, GL_FALSE, ProjectionMatrix.m);
 
+    // Luz más direccional desde arriba-derecha
     glUniform3f(LightDirUniformLocation,     0.5f, 1.0f, 0.3f);
     glUniform3f(LightColorUniformLocation,   1.0f, 1.0f, 1.0f);
-    glUniform3f(AmbientColorUniformLocation, 0.2f, 0.2f, 0.25f);
-    glUniform3f(MaterialColorUniformLocation,0.7f, 0.4f, 0.2f);
+    glUniform3f(AmbientColorUniformLocation, 0.4f, 0.4f, 0.5f);
+    glUniform3f(MaterialColorUniformLocation, 0.85f, 0.65f, 0.45f);
 
     glBindVertexArray(BufferIds[0]);
     glDrawElements(GL_TRIANGLES, IndexCount, GL_UNSIGNED_INT, 0);
@@ -433,10 +433,11 @@ void CreateGround()
 {
     Vertex V[4];
 
-    V[0].position[0] = -15; V[0].position[1] = -1.5f; V[0].position[2] = -15;
-    V[1].position[0] =  15; V[1].position[1] = -1.5f; V[1].position[2] = -15;
-    V[2].position[0] =  15; V[2].position[1] = -1.5f; V[2].position[2] =  15;
-    V[3].position[0] = -15; V[3].position[1] = -1.5f; V[3].position[2] =  15;
+    // Suelo grande: desde muy cerca hasta muy lejos
+    V[0].position[0] = -50.0f; V[0].position[1] = -2.0f; V[0].position[2] = -50.0f;
+    V[1].position[0] =  50.0f; V[1].position[1] = -2.0f; V[1].position[2] = -50.0f;
+    V[2].position[0] =  50.0f; V[2].position[1] = -2.0f; V[2].position[2] =  20.0f; // cerca de la cámara
+    V[3].position[0] = -50.0f; V[3].position[1] = -2.0f; V[3].position[2] =  20.0f;
 
     for (int i=0;i<4;i++)
     {
@@ -483,8 +484,9 @@ void DrawGround()
 
     glUniform3f(LightDirUniformLocation,     0.5f, 1.0f, 0.3f);
     glUniform3f(LightColorUniformLocation,   1.0f, 1.0f, 1.0f);
-    glUniform3f(AmbientColorUniformLocation, 0.2f, 0.2f, 0.25f);
-    glUniform3f(MaterialColorUniformLocation,0.1f, 0.5f, 0.1f);
+    glUniform3f(AmbientColorUniformLocation, 0.4f, 0.4f, 0.5f);
+    // Color azul oscuro para el suelo
+    glUniform3f(MaterialColorUniformLocation, 0.2f, 0.25f, 0.4f);
 
     glBindVertexArray(GroundVAO);
     glDrawElements(GL_TRIANGLES, GroundIndexCount, GL_UNSIGNED_INT, 0);
