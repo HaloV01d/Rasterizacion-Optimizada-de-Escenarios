@@ -20,6 +20,9 @@ size_t IndexCount = 0; // Número de índices para el objeto principal
 size_t GroundIndexCount = 0; // Número de índices para el suelo
 
 unsigned FrameCount = 0; // Contador de frames renderizados
+unsigned TotalFrameCount = 0; // Contador total de frames
+float FPS = 0.0f; // FPS actuales
+clock_t FPSLastTime = 0; // Tiempo del último cálculo de FPS
 
 GLuint
 ProjectionMatrixUniformLocation, // Ubicación uniforme de la matriz de proyección
@@ -241,6 +244,30 @@ GLuint LoadTexture(const char* path) // Carga una textura desde archivo
 }
 
 // =======================================================================
+// Update Window Title with Stats
+// =======================================================================
+void UpdateWindowTitle() // Actualizar título de la ventana con estadísticas
+{
+    char title[256];
+    
+    // Calcular total de triángulos
+    size_t totalTriangles = (IndexCount / 3) + (GroundIndexCount / 3);
+    size_t totalVertices = IndexCount + GroundIndexCount;
+    
+    // Formato: Título | FPS | Triángulos | Vértices | Shadow Map
+    sprintf(title, "%s | FPS: %.1f | Tris: %zu | Verts: %zu | Shadow: %dx%d | Rot: %s",
+            WINDOW_TITLE_PREFIX,
+            FPS,
+            totalTriangles,
+            totalVertices,
+            SHADOW_WIDTH,
+            SHADOW_HEIGHT,
+            AutoRotate ? "AUTO" : "MANUAL");
+    
+    glutSetWindowTitle(title);
+}
+
+// =======================================================================
 // Prototipos
 // =======================================================================
 void Initialize(int, char*[]); // Inicialización
@@ -257,6 +284,7 @@ void DrawGround(void); // Dibujar suelo
 void KeyboardFunction(unsigned char, int, int); // Función de teclado
 void CreateShadowMap(void); // Crear mapa de sombras
 void RenderShadowPass(void); // Renderizar pase de sombras 
+void UpdateWindowTitle(void); // Actualizar título de ventana
 // =======================================================================
 // MAIN
 // =======================================================================
@@ -297,6 +325,9 @@ void Initialize(int argc, char* argv[]) // Inicialización
     CreateOBJ();
     CreateGround();
     CreateShadowMap();
+    
+    // Inicializar tiempo para FPS
+    FPSLastTime = clock();
 }
 
 // =======================================================================
@@ -344,6 +375,21 @@ void ResizeFunction(int W, int H) // Función de resize
 void RenderFunction(void) // Función de render
 {
     FrameCount++;
+    TotalFrameCount++;
+    
+    // Calcular FPS cada 0.5 segundos
+    clock_t currentTime = clock();
+    float deltaTime = (float)(currentTime - FPSLastTime) / CLOCKS_PER_SEC;
+    
+    if (deltaTime >= 0.5f) // Actualizar FPS cada medio segundo
+    {
+        FPS = FrameCount / deltaTime;
+        FrameCount = 0;
+        FPSLastTime = currentTime;
+        
+        // Actualizar título de ventana con estadísticas
+        UpdateWindowTitle();
+    }
     
     // 1. Renderizar pase de sombras
     RenderShadowPass();
@@ -372,7 +418,6 @@ void IdleFunction(void) // Función de idle
 // =======================================================================
 void TimerFunction(int Value) // Función de timer
 {
-    FrameCount = 0;
     glutTimerFunc(250, TimerFunction, 1);
 }
 
@@ -634,6 +679,7 @@ void KeyboardFunction(unsigned char key, int x, int y) // Función de teclado
                 LastTime = 0; // Reiniciar el tiempo para rotación suave
             }
             printf("Rotación automática: %s\n", AutoRotate ? "ON" : "OFF");
+            UpdateWindowTitle(); // Actualizar título inmediatamente
             break;
             
         case 'q': // Rotar manualmente a la izquierda
